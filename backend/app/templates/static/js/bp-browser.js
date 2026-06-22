@@ -431,6 +431,40 @@
         _bpFire(loadStockThresholds, "loadStockThresholds");
         _bpFire(loadBlueprintCatalog, "loadBlueprintCatalog");
         _bpFire(loadBpStats, "loadBpStats");
+        // Auto-trigger market price refresh on page load so prices are available
+        // without requiring a manual sync. Runs in background, does not block UI.
+        _bpFire(triggerMarketPriceRefresh, "triggerMarketPriceRefresh");
+    }
+
+    /**
+     * Trigger a background market price refresh via /api/market/refresh.
+     * Called once on page load. Runs silently — no UI blocking.
+     * This ensures prices are available even if the auto-sync has not run yet.
+     * Skips if prices were already fetched recently (within last 30 minutes).
+     */
+    async function triggerMarketPriceRefresh() {
+        // Check if we already have a recent price cache
+        if (_priceCache.savedAt && (Date.now() - _priceCache.savedAt) < 1800000) {
+            console.log("[BP] Price cache fresh (< 30min), skipping background refresh");
+            return;
+        }
+        try {
+            console.log("[BP] Triggering background market price refresh...");
+            var resp = await fetch("/api/market/refresh", {
+                method: "POST",
+                credentials: "include",
+            });
+            if (resp.ok) {
+                var data = await resp.json();
+                console.log("[BP] Market price refresh done:", data.message || data);
+                // Clear local price cache so next fetchBatchPrices pulls fresh data
+                clearPriceCache();
+            } else {
+                console.warn("[BP] Market price refresh failed:", resp.status);
+            }
+        } catch (e) {
+            console.warn("[BP] Market price refresh error:", e.message);
+        }
     }
 
     async function loadLocations() {
@@ -1359,7 +1393,12 @@
                 '</div>';
         }
 
-        // Show recursively resolved base minerals if different from direct materials
+        // Show recursively resolved base minerals ONLY if they differ from direct materials.
+        // FIX: Previously this section showed for T1 ships whose direct materials ARE already
+        // raw minerals — causing every mineral to appear twice (once as direct material,
+        // once as aggregated_materials). Now we require BOTH hasSubSteps AND hasNew to be
+        // true: there must be actual sub-steps (i.e. intermediate components) AND the
+        // aggregated result must contain type_ids not in the direct material list.
         var aggMats = (buildStepsData && buildStepsData.aggregated_materials) || [];
         if (aggMats.length > 0) {
             var directIds = {};
@@ -1373,7 +1412,11 @@
             for (var ai = 0; ai < aggMats.length; ai++) {
                 if (!directIds[aggMats[ai].material_type_id]) { hasNew = true; break; }
             }
-            if (hasSubSteps || (aggMats.length !== data.materials.length) || hasNew) {
+            // Only render the Base Minerals section if there are genuinely NEW type_ids
+            // (i.e. sub-components that decompose into different materials).
+            // hasSubSteps alone is NOT enough — T1 blueprints with no intermediate
+            // components return sub_steps:[] and aggMats identical to direct materials.
+            if (hasSubSteps && hasNew) {
                 html += '<div class="bp-material-divider"></div>' +
                     '<div class="bp-material-section-label">Base Minerals' +
                     (buildStepsData.max_depth_reached ? ' (depth ' + buildStepsData.max_depth_reached + ')' : '') +
@@ -2301,7 +2344,11 @@
         // The _stationSelectorProcessing flag alone is not sufficient because
         // hidden.bs.modal can fire asynchronously AFTER the flag was already
         // reset by a previous cycle — this null-check catches it definitively.
-        if (_stationSelectorPendingTarget === null) {
+        // CRITICAL FIX: use == null (loose equality) to catch BOTH null AND undefined.
+        // sendCartToOrder() called without args sets pending to undefined (not null),
+        // so _stationSelectorPendingTarget === null was FALSE — the guard never fired.
+        // This was the real cause of the dark-screen / double-proceed bug.
+        if (_stationSelectorPendingTarget == null) {
             console.log("[SS] dismiss skipped — target already consumed");
             return;
         }
