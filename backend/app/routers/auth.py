@@ -231,7 +231,8 @@ async def callback(request: Request, db: AsyncSession = Depends(get_session)):
     try:
         token = await oauth.eveonline.authorize_access_token(request)
     except Exception as e:
-        return RedirectResponse(url=f"/login?error={httpx.URL(e).encode()}", status_code=302)
+        err_msg = str(e).replace(" ", "+")
+        return RedirectResponse(url=f"/login?error={err_msg}", status_code=302)
 
     access_token = token.get("access_token")
     refresh_token = token.get("refresh_token")
