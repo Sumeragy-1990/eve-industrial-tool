@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blueprint Shopper — EVE Industrial Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ static_url('css/style.css') }}" rel="stylesheet">
+    <style>
+        /* ── Blueprint Shopper Layout ────────────────────────────── */
+        :root {
+            --bp-cart-bg: rgba(255, 193, 7, 0.04);
+            --bp-detail-bg: rgba(13, 202, 240, 0.03);
+            --bp-tree-bg: rgba(30, 30, 64, 0.3);
+        }
+
+        .bp-page {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 56px);
+            overflow: hidden;
+        }
+
+        .bp-toolbar {
+            flex-shrink: 0;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--squad-card-border);
+            background: var(--squad-bg2);
+        }
+
+        .bp-main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Three columns */
+        .bp-col-tree {
+            width: 280px;
+            min-width: 240px;
+            flex-shrink: 0;
+            overflow-y: auto;
+            border-right: 1px solid var(--squad-card-border);
+            background: var(--bp-tree-bg);
+        }
+
+        .bp-col-detail {
+            flex: 1;
+            overflow-y: auto;
+            min-width: 0;
+            background: var(--bp-detail-bg);
+            padding: 10px;
+        }
+
+        .bp-col-cart {
+            width: 360px;
+            min-width: 300px;
+            flex-shrink: 0;
+            overflow-y: auto;
+            border-left: 1px solid var(--squad-card-border);
+            background: var(--bp-cart-bg);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Column resize handles */
+        .bp-resize-handle {
+            width: 4px;
+            cursor: col-resize;
+            flex-shrink: 0;
+            background: transparent;
+            transition: background 0.2s;
+            position: relative;
+        }
+        .bp-resize-handle:hover,
+        .bp-resize-handle.active {
+            background: var(--squad-orange);
+        }
+
+        /* Toolbar */
+        .bp-toolbar .btn-group .btn {
+            font-size: 0.78rem;
+            padding: 4px 10px;
+        }
+
+        .bp-stats {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .bp-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.04);
+            white-space: nowrap;
+        }
+        .bp-stat .stat-label { color: var(--squad-text-dim); }
+        .bp-stat .stat-value { font-weight: 600; }
+
+        /* Cart header */
+        .bp-cart-header {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--squad-card-border);
+            flex-shrink: 0;
+            background: rgba(255,193,7,0.06);
+        }
+
+        .bp-cart-items {
+            flex: 1;
+            overflow-y: auto;
+            padding: 6px 8px;
+        }
+
+        .bp-cart-footer {
+            flex-shrink: 0;
+            border-top: 1px solid var(--squad-card-border);
+            padding: 8px 10px;
+        }
+
+        /* Cart item */
+        .bp-cart-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            margin-bottom: 3px;
+            font-size: 0.78rem;
+            background: rgba(255,255,255,0.02);
+            transition: background 0.15s;
+        }
+        .bp-cart-item:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .bp-cart-item-name {
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .bp-cart-item-qty {
+            width: 50px;
+            text-align: center;
+            font-size: 0.72rem;
+        }
+        .bp-cart-item-remove {
+            cursor: pointer;
+            color: var(--squad-text-dim);
+            font-size: 0.8rem;
+            padding: 0 3px;
+            transition: color 0.15s;
+        }
+        .bp-cart-item-remove:hover {
+            color: #dc3545;
+        }
+
+        /* Aggregated materials */
+        .bp-agg-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-size: 0.76rem;
+            background: rgba(255,255,255,0.02);
+            margin-bottom: 2px;
+        }
+        .bp-agg-item.surplus { background: rgba(40,167,69,0.08); }
+        .bp-agg-item.deficit { background: rgba(220,53,69,0.08); }
+        .bp-agg-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .bp-agg-needed { min-width: 60px; text-align: right; }
+        .bp-agg-owned { min-width: 60px; text-align: right; color: var(--squad-text-dim); }
+
+        /* Detail panel */
+        .bp-detail-section {
+            margin-bottom: 12px;
+        }
+        .bp-detail-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--squad-text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .bp-material-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 6px;
+            font-size: 0.78rem;
+            border-radius: 3px;
+            margin-bottom: 2px;
+        }
+        .bp-material-row:hover { background: rgba(255,255,255,0.03); }
+        .bp-material-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .bp-material-base { width: 55px; text-align: right; color: var(--squad-text-dim); font-size: 0.72rem; }
+        .bp-material-adjusted { width: 65px; text-align: right; font-weight: 600; color: var(--squad-orange); }
+        .bp-material-price { width: 70px; text-align: right; color: var(--squad-text-dim); font-size: 0.72rem; font-family: monospace; }
+        .bp-material-total { width: 80px; text-align: right; font-weight: 600; color: var(--squad-gold); font-size: 0.74rem; font-family: monospace; }
+
+        .bp-material-divider {
+            border-top: 1px solid rgba(255,255,255,0.06);
+            margin: 8px 0 4px 0;
+        }
+
+        .bp-material-section-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--squad-orange);
+            padding: 2px 6px;
+            margin-bottom: 4px;
+        }
+
+        .bp-skill-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 6px;
+            font-size: 0.76rem;
+            color: var(--squad-text-dim);
+        }
+        .bp-skill-name { flex: 1; }
+        .bp-skill-level { color: var(--squad-orange); font-weight: 600; }
+
+        /* Description block */
+        .bp-description {
+            font-size: 0.78rem;
+            color: var(--squad-text-dim);
+            line-height: 1.5;
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 6px 8px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 4px;
+            border-left: 2px solid var(--squad-orange);
+        }
+
+        /* Add-to-cart button */
+        .bp-add-cart-btn {
+            font-size: 0.8rem;
+            padding: 4px 12px;
+        }
+
+        /* Cart badge */
+        .bp-cart-badge {
+            font-size: 0.7rem;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 9px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Buy order export */
+        .bp-buyorder-textarea {
+            font-family: 'Courier New', monospace;
+            font-size: 0.72rem;
+            background: rgba(0,0,0,0.3);
+            color: var(--squad-text-bright);
+            border: 1px solid var(--squad-card-border);
+            resize: vertical;
+        }
+
+        /* Material check */
+        .bp-check-location {
+            font-size: 0.72rem;
+            padding: 6px 8px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 4px;
+            margin-top: 6px;
+        }
+
+        /* Responsive */
+        @media (max-width: 992px) {
+            .bp-col-tree { width: 220px; min-width: 180px; }
+            .bp-col-cart { width: 300px; min-width: 250px; }
+        }
+        @media (max-width: 768px) {
+            .bp-main { flex-direction: column; }
+            .bp-col-tree { width: 100%; max-height: 35vh; border-right: none; border-bottom: 1px solid var(--squad-card-border); }
+            .bp-col-detail { max-height: 40vh; }
+            .bp-col-cart { width: 100%; max-height: 35vh; border-left: none; border-top: 1px solid var(--squad-card-border); }
+            .bp-resize-handle { display: none; }
+        }
+
+        /* Gold glow for BPO-owned products */
+        .bp-tree-product.bp-gold .bp-tree-product-name { color: #f0c040; font-weight: 600; }
+        .bp-star { color: #f0c040; }  /* ★ gold star */
+
+        /* Blue tint for BPC-only products */
+        .bp-tree-product.bp-blue .bp-tree-product-name { color: var(--bs-info); }
+
+        /* "BPC only" badge for Faction/Storyline/Officer/Deadspace */
+        .bp-bpc-only-badge {
+            font-size: 0.65rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            background: rgba(var(--bs-info-rgb, 13, 202, 240), 0.15);
+            color: var(--bs-info);
+            font-style: italic;
+        }
+
+        /* Product sub-rows (BPO / BPC / Custom) */
+        .bp-tree-product-sub {
+            font-size: 0.72rem;
+            cursor: pointer;
+            padding: 2px 6px 2px 24px;
+            border-radius: 3px;
+        }
+        .bp-tree-product-sub:hover { background: rgba(255,255,255,0.04); }
+        .bp-tree-product-sub.bpo { color: var(--bs-info); }
+        .bp-tree-product-sub.bpc { color: var(--bs-warning); }
+        .bp-tree-product-sub.custom { color: var(--bs-success); }
+
+        /* Stock level warning (#29) */
+        .bp-tree-product-sub.bpc.bp-stock-low {
+            border-left: 3px solid var(--squad-coral, #e8604c);
+            background: rgba(232, 96, 76, 0.08);
+        }
+        .bp-bpc-runs {
+            font-size: 0.65rem;
+            color: var(--bs-secondary);
+            margin-left: 2px;
+        }
+        .bp-tree-product-sub.bpc.bp-stock-low .bp-bpc-runs {
+            color: var(--squad-coral, #e8604c);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ── Navbar ────────────────────────────────────────────────────── -->
+<nav class="navbar navbar-dark bg-dark border-bottom border-secondary sticky-top">
+    <div class="container-fluid">
+        <div class="d-flex align-items-center gap-2">
+            <a href="/" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> Back to Industrial
+            </a>
+            <span class="navbar-brand mb-0 h1 ms-2" style="font-size:1.1rem;">
+                <i class="bi bi-cart3"></i> Blueprint Shopper
+            </span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-light btn-sm" onclick="BP.openStockThresholdModal()" id="btnStockThresholds" title="BPC Stock Level Thresholds">
+                <i class="bi bi-sliders2"></i> Stock
+            </button>
+            <button class="btn btn-info btn-sm" onclick="BP.syncBlueprints()" id="btnSyncBp">
+                <i class="bi bi-arrow-repeat"></i> Sync Personal
+            </button>
+            <button class="btn btn-warning btn-sm" onclick="BP.syncCorpBlueprints()" id="btnSyncCorpBp">
+                <i class="bi bi-building"></i> Sync Corp
+            </button>
+            <a href="/auth/logout" class="btn btn-outline-danger btn-sm" title="Logout">
+                <i class="bi bi-box-arrow-right"></i> Logout
+            </a>
+        </div>
+    </div>
+</nav>
+
+<!-- ── Sync Progress Bar ─────────────────────────────────────────── -->
+<div id="bpSyncBar" class="d-none" style="background:var(--bs-dark);border-bottom:1px solid var(--bs-border-color);padding:6px 12px;">
+    <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-arrow-repeat spin text-info"></i>
+        <span id="bpSyncMsg" class="small">Syncing...</span>
+        <div class="flex-grow-1" style="max-width:300px;">
+            <div class="progress" style="height:8px;">
+                <div id="bpSyncProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-info"
+                     role="progressbar" style="width:100%" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+        </div>
+        <small id="bpSyncCount" class="text-secondary"></small>
+    </div>
+</div>
+
+<!-- ── Tab Navigation ──────────────────────────────────────────── -->
+<ul class="nav nav-tabs nav-fill mb-2" id="bpShopperTabs">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#bpTabShopper">
+            <i class="bi bi-shop"></i> Shopper
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#bpTabOrders">
+            <i class="bi bi-clipboard-check"></i> Production Orders
+            <span class="badge bg-warning text-dark ms-1" id="bpOrderCount">0</span>
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#bpTabBpcStock">
+            <i class="bi bi-archive"></i> BPC Stock
+            <span class="badge bg-info text-dark ms-1" id="bpBpcStockCount">0</span>
+        </button>
+    </li>
+</ul>
+
+<!-- ── Tab Content ─────────────────────────────────────────────── -->
+<div class="tab-content">
+
+<!-- ── Shopper Tab ─────────────────────────────────────────────── -->
+<div class="tab-pane fade show active" id="bpTabShopper">
+
+<!-- ── Page Layout ───────────────────────────────────────────────── -->
+<div class="bp-page">
+
+    <!-- Toolbar -->
+    <div class="bp-toolbar">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <!-- Search -->
+            <input type="text" class="form-control form-control-sm" id="bpSearchInput"
+                   placeholder="Search product name..." style="width:200px;">
+
+            <!-- Stats -->
+            <div class="bp-stats ms-auto">
+                <div class="bp-stat"><span class="stat-label">Total:</span><span class="stat-value text-info" id="bpStatTotal">-</span></div>
+                <div class="bp-stat"><span class="stat-label">BPOs:</span><span class="stat-value text-info" id="bpStatBpo">-</span></div>
+                <div class="bp-stat"><span class="stat-label">BPCs:</span><span class="stat-value text-warning" id="bpStatBpc">-</span></div>
+                <div class="bp-stat"><span class="stat-label">Runs:</span><span class="stat-value text-danger" id="bpStatRuns">-</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Three-column layout -->
+    <div class="bp-main">
+
+        <!-- Column 1: Tree -->
+        <div class="bp-col-tree" id="bpTreeCol">
+            <div id="bpTreeContainer" style="padding:4px;">
+                <div class="text-center text-secondary py-4">
+                    <i class="bi bi-hourglass-split"></i> Loading catalog...
+                </div>
+            </div>
+        </div>
+
+        <!-- Resize handle 1 -->
+        <div class="bp-resize-handle" id="bpResize1"></div>
+
+        <!-- Column 2: Detail -->
+        <div class="bp-col-detail" id="bpDetailCol">
+
+            <!-- Placeholder -->
+            <div id="bpDetailPlaceholder" class="text-center text-secondary py-5">
+                <i class="bi bi-box-seam" style="font-size:3rem;"></i>
+                <p class="mt-2">Select a blueprint to view details, materials & skills.</p>
+            </div>
+
+            <!-- Detail Panel (hidden until product selected) -->
+            <div id="bpDetailPanel" class="d-none">
+
+                <!-- Product Header -->
+                <div class="card bg-dark border-secondary mb-2">
+                    <div class="card-body py-2 px-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h5 class="mb-1" id="bpDetailProductName">-</h5>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <small class="text-secondary" id="bpDetailMetaGroup"></small>
+                                    <small class="text-secondary" id="bpDetailCategory"></small>
+                                    <small class="text-secondary" id="bpDetailGroup"></small>
+                                    <small class="text-info fst-italic" id="bpDetailSubMode"></small>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="mb-1">
+                                    <span class="badge bg-info me-1" id="bpDetailBpoCount">0 BPOs</span>
+                                    <span class="badge bg-warning text-dark" id="bpDetailBpcCount">0 BPCs</span>
+                                </div>
+                                <button class="btn btn-sm btn-success bp-add-cart-btn" onclick="BP.addToCart()" id="btnAddToCart">
+                                    <i class="bi bi-cart-plus"></i> Add to Cart
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-tabs -->
+                <ul class="nav nav-tabs nav-fill mb-2" id="bpDetailTabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#bpTabMaterials">
+                            <i class="bi bi-box"></i> Materials
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#bpTabSkills">
+                            <i class="bi bi-book"></i> Skills
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#bpTabInvention" id="bpTabInventionLink">
+                            <i class="bi bi-lightbulb"></i> Invention
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#bpTabDescription">
+                            <i class="bi bi-info-circle"></i> Info
+                        </a>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Materials Tab -->
+                    <div class="tab-pane fade show active" id="bpTabMaterials">
+                        <div class="bp-detail-section">
+                            <div class="bp-detail-title">
+                                Materials Required
+                                <small class="text-secondary fw-normal" id="bpDetailConfigInfo">(ME 10, 1 run)</small>
+                            </div>
+                            <div id="bpMaterialsList">
+                                <div class="text-center text-secondary py-2">Loading...</div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-2 pt-2 border-top border-secondary" style="font-size:0.78rem;">
+                                <span class="text-secondary">Total Volume</span>
+                                <span class="fw-bold" id="bpTotalVolume">-</span>
+                            </div>
+                        </div>
+                        <!-- BPO/BPC tables from tree -->
+                        <div class="bp-detail-section mt-3">
+                            <div class="bp-detail-title">Owned Blueprints</div>
+                            <ul class="nav nav-tabs nav-fill mb-1" id="bpOwnedTabs">
+                                <li class="nav-item"><a class="nav-link active py-1 small" data-bs-toggle="tab" href="#bpOwnedBpo">BPOs</a></li>
+                                <li class="nav-item"><a class="nav-link py-1 small" data-bs-toggle="tab" href="#bpOwnedBpc">BPCs</a></li>
+                            </ul>
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="bpOwnedBpo">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-sm mb-0" style="font-size:0.72rem;">
+                                            <thead><tr><th>#</th><th class="text-end">ME</th><th class="text-end">TE</th><th>Location</th><th>Flag</th><th>Owner</th></tr></thead>
+                                            <tbody id="bpDetailBpoBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="bpOwnedBpc">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-sm mb-0" style="font-size:0.72rem;">
+                                            <thead><tr><th>#</th><th class="text-end">ME</th><th class="text-end">TE</th><th class="text-end">Runs</th><th>Location</th><th>Flag</th><th>Owner</th></tr></thead>
+                                            <tbody id="bpDetailBpcBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Config controls integrated into Materials -->
+                        <div class="bp-detail-section mt-3">
+                            <div class="bp-detail-title">Blueprint Configuration</div>
+                            <div class="mb-3">
+                                <label class="form-label small">Material Efficiency (ME)</label>
+                                <input type="range" class="form-range" id="bpConfigMe" min="0" max="10" value="10" step="1">
+                                <div class="d-flex justify-content-between">
+                                    <small class="text-secondary">ME 0</small>
+                                    <small class="text-info" id="bpConfigMeValue">10</small>
+                                    <small class="text-secondary">ME 10</small>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Time Efficiency (TE)</label>
+                                <input type="range" class="form-range" id="bpConfigTe" min="0" max="20" value="20" step="1">
+                                <div class="d-flex justify-content-between">
+                                    <small class="text-secondary">TE 0</small>
+                                    <small class="text-info" id="bpConfigTeValue">20</small>
+                                    <small class="text-secondary">TE 20</small>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label small">Runs</label>
+                                <input type="number" class="form-control form-control-sm" id="bpConfigRuns" value="1" min="1" max="1000">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Skills Tab -->
+                    <div class="tab-pane fade" id="bpTabSkills">
+                        <div id="bpSkillsList">
+                            <div class="text-center text-secondary py-2">Loading...</div>
+                        </div>
+                    </div>
+
+                    <!-- Invention Tab -->
+                    <div class="tab-pane fade" id="bpTabInvention">
+                        <div id="bpInventionContent">
+                            <div class="text-center text-secondary py-2">
+                                <i class="bi bi-lightbulb"></i> Select a T1 blueprint to see invention options.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Description Tab -->
+                    <div class="tab-pane fade" id="bpTabDescription">
+                        <div id="bpDescriptionContent" class="bp-description">
+                            Select a product to view description.
+                        </div>
+                        <div class="mt-2" style="font-size:0.76rem;">
+                            <table class="table table-dark table-sm mb-0">
+                                <tr><td class="text-secondary">Category</td><td id="bpInfoCategory">-</td></tr>
+                                <tr><td class="text-secondary">Group</td><td id="bpInfoGroup">-</td></tr>
+                                <tr><td class="text-secondary">Tech Level</td><td id="bpInfoTech">-</td></tr>
+                                <tr><td class="text-secondary">Race</td><td id="bpInfoRace">-</td></tr>
+                                <tr><td class="text-secondary">Base Time</td><td id="bpInfoTime">-</td></tr>
+                                <tr><td class="text-secondary">Produces</td><td id="bpInfoQty">-</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resize handle 2 -->
+        <div class="bp-resize-handle" id="bpResize2"></div>
+
+        <!-- Column 3: Cart -->
+        <div class="bp-col-cart" id="bpCartCol">
+            <!-- Cart Header -->
+            <div class="bp-cart-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="fw-bold" style="font-size:0.9rem;">
+                        <i class="bi bi-cart"></i> Shopping Cart
+                        <span class="badge bg-warning text-dark bp-cart-badge ms-1" id="bpCartCount">0</span>
+                    </span>
+                    <button class="btn btn-sm btn-outline-danger" onclick="BP.clearCart()" title="Clear Cart">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cart Items -->
+            <div class="bp-cart-items" id="bpCartItems">
+                <div class="text-center text-secondary py-3" style="font-size:0.78rem;">
+                    <i class="bi bi-cart"></i> Cart is empty.<br>
+                    <small>Click "Add to Cart" on a blueprint.</small>
+                </div>
+            </div>
+
+            <!-- Cart Footer -->
+            <div class="bp-cart-footer" id="bpCartFooter">
+                <!-- Toggle Build Cost -->
+                <button class="btn btn-sm btn-outline-info w-100" onclick="BP.toggleBuildCost()" id="bpBuildCostLabel">
+                    <i class="bi bi-calculator"></i> Calculate Build Cost
+                </button>
+
+                <!-- Build Cost Panel (hidden by default) -->
+                <div id="bpBuildCostPanel" style="display:none; margin-top:6px;">
+                    <div class="small text-secondary mb-1" style="font-size:0.72rem;">
+                        <i class="bi bi-gear"></i> Facility Configuration
+                    </div>
+
+                    <!-- Facility Type -->
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">Facility Type</label>
+                        <select class="form-select form-select-sm" id="bpBuildFacilityType" style="font-size:0.72rem;">
+                            <option value="npc_station">NPC Station</option>
+                            <option value="citadel">Citadel / Engineering Complex</option>
+                        </select>
+                    </div>
+
+                    <!-- Station / Structure Select -->
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">Station / Structure</label>
+                        <select class="form-select form-select-sm" id="bpBuildStation" style="font-size:0.72rem;">
+                            <option value="">-- Select station --</option>
+                        </select>
+                    </div>
+
+                    <!-- Rigs -->
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">Rigs</label>
+                        <select class="form-select form-select-sm" id="bpBuildRigs" style="font-size:0.72rem;">
+                            <option value="none">None</option>
+                            <option value="t1">T1 Manufacturing Rig</option>
+                            <option value="t2">T2 Manufacturing Rig</option>
+                        </select>
+                    </div>
+
+                    <!-- Tax Rate -->
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">
+                            Tax Rate: <span id="bpBuildTaxVal" class="text-warning">5.0</span>%
+                        </label>
+                        <input type="range" class="form-range" id="bpBuildTax" min="0" max="25" value="5.0" step="0.5" style="height:8px;">
+                        <div class="d-flex justify-content-between" style="font-size:0.6rem;">
+                            <span class="text-secondary">0%</span>
+                            <span class="text-secondary">25%</span>
+                        </div>
+                    </div>
+
+                    <!-- Skills -->
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">Industry Skill (0-5)</label>
+                        <input type="number" class="form-control form-control-sm" id="bpSkillIndustry" min="0" max="5" value="5" style="font-size:0.72rem;">
+                    </div>
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">Advanced Industry Skill (0-5)</label>
+                        <input type="number" class="form-control form-control-sm" id="bpSkillAdvIndustry" min="0" max="5" value="5" style="font-size:0.72rem;">
+                    </div>
+                    <div class="mb-1">
+                        <label class="small" style="font-size:0.7rem;">Supply Chain Management (0-5)</label>
+                        <input type="number" class="form-control form-control-sm" id="bpSkillSupplyChain" min="0" max="5" value="4" style="font-size:0.72rem;">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="d-flex gap-1 mt-2">
+                        <button class="btn btn-sm btn-primary flex-fill" onclick="BP.runBuildCost()" style="font-size:0.72rem;">
+                            <i class="bi bi-calculator"></i> Calculate
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="BP.saveBuildConfig()" style="font-size:0.72rem;">
+                            <i class="bi bi-save"></i> Save
+                        </button>
+                    </div>
+
+                    <!-- Build Result -->
+                    <div id="bpBuildResult" class="mt-2" style="font-size:0.72rem;"></div>
+                </div>
+
+                <!-- Build Plan Summary (persistent) -->
+                <div class="mt-2 border-top border-secondary pt-2" id="bpBuildPlanPanel">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small fw-bold" style="font-size:0.72rem;">
+                            <i class="bi bi-clipboard-data"></i> Build Plan Summary
+                        </span>
+                        <button class="btn btn-sm btn-outline-info" onclick="BP.refreshBuildPlan()" title="Refresh Build Plan" style="font-size:0.65rem; padding:1px 6px;">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </button>
+                    </div>
+
+                    <!-- Empty state -->
+                    <div id="bpBuildPlanEmpty" class="text-center text-secondary py-2" style="font-size:0.7rem;">
+                        <i class="bi bi-inbox"></i> No build plan yet.<br>
+                        <small>Add items to cart and calculate build cost above.</small>
+                    </div>
+
+                    <!-- Build Plan Table -->
+                    <div id="bpBuildPlanTable" style="font-size:0.65rem;"></div>
+
+                    <!-- Build Plan Totals -->
+                    <div id="bpBuildPlanTotals" style="display:none; margin-top:4px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.08);">
+                        <div class="d-flex justify-content-between small" style="font-size:0.68rem;">
+                            <span class="text-secondary">Material Cost</span>
+                            <span id="bpPlanMaterial" class="fw-bold">-</span>
+                        </div>
+                        <div class="d-flex justify-content-between small" style="font-size:0.68rem;">
+                            <span class="text-secondary">Job Cost</span>
+                            <span id="bpPlanJob" class="fw-bold">-</span>
+                        </div>
+                        <div class="d-flex justify-content-between small" style="font-size:0.68rem;">
+                            <span class="text-secondary">Facility Tax</span>
+                            <span id="bpPlanFacility" class="fw-bold">-</span>
+                        </div>
+                        <div class="d-flex justify-content-between small fw-bold mt-1" style="font-size:0.72rem; border-top:1px solid var(--squad-orange); padding-top:3px;">
+                            <span style="color:var(--squad-orange);">Grand Total</span>
+                            <span id="bpPlanGrand" style="color:#28a745;">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Send to Production Orders (Split Dropdown) -->
+                <div class="btn-group w-100 mt-2" id="bpSendToOrderGroup">
+                    <button class="btn btn-sm btn-success" onclick="BP.sendCartToOrder()" id="bpSendToOrderBtn">
+                        <i class="bi bi-send"></i> Send to New Order
+                    </button>
+                    <button class="btn btn-sm btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="bpOrderTargetDropdown">
+                        <li><a class="dropdown-item" href="#" onclick="BP.sendCartToOrder()"><i class="bi bi-geo-alt"></i> Create New (Station wählen)</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="BP.sendCartToOrderDirect()"><i class="bi bi-lightning"></i> Create New (Direkt)</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /bpTabShopper -->
+</div><!-- /tab-content -->
+
+<!-- ── Production Orders Tab ─────────────────────────────────── -->
+<div class="tab-pane fade" id="bpTabOrders">
+
+    <div class="bp-orders-container">
+
+        <!-- Order Toolbar -->
+        <div class="bp-order-toolbar">
+            <button class="btn btn-sm btn-outline-success" onclick="BP.createOrder()">
+                <i class="bi bi-plus-lg"></i> New Order
+            </button>
+            <button class="btn btn-sm btn-outline-info" onclick="BP.saveOrders()">
+                <i class="bi bi-save"></i> Save
+            </button>
+            <button class="btn btn-sm btn-outline-warning" onclick="BP.exportOrderAsJson()">
+                <i class="bi bi-download"></i> Export JSON
+            </button>
+            <button class="btn btn-sm btn-outline-info" onclick="document.getElementById('bpOrderImportInput').click()">
+                <i class="bi bi-upload"></i> Import
+            </button>
+            <input type="file" id="bpOrderImportInput" accept=".json" style="display:none;" onchange="BP.importOrderFromJson(event)">
+            <button class="btn btn-sm btn-outline-danger ms-auto" onclick="BP.clearAllOrders()">
+                <i class="bi bi-trash"></i> Clear All
+            </button>
+        </div>
+
+        <!-- Order Selector -->
+        <div class="bp-order-selector" id="bpOrderSelector"></div>
+
+        <!-- ⚙️ Config Bar (always visible above order detail) -->
+        <div class="bp-config-bar" id="bpConfigBar">
+            <div class="bp-config-bar-header">
+                <span><i class="bi bi-gear"></i> Config</span>
+                <div class="bp-config-bar-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="BP.openConfigModal()">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" onclick="BP.recalcCurrentOrder()">
+                        <i class="bi bi-arrow-repeat"></i> Recalc
+                    </button>
+                </div>
+            </div>
+            <div class="bp-config-bar-body" id="bpConfigBarBody">
+                <div class="text-secondary small py-1">Loading config...</div>
+            </div>
+        </div>
+
+        <!-- Order Detail -->
+        <div class="bp-order-detail" id="bpOrderDetail">
+            <!-- Order Header -->
+            <div class="bp-order-header">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <span class="bp-order-name" id="bpOrderDetailName">-</span>
+                        <span class="bp-order-date" id="bpOrderDetailDate"></span>
+                        <div class="bp-order-meta" id="bpOrderDetailMeta">No order selected.</div>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-danger" onclick="BP.deleteOrder()" title="Delete Order">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Items -->
+            <div id="bpOrderItemsContainer">
+                <div class="bp-order-placeholder">
+                    <i class="bi bi-clipboard-check"></i>
+                    <p class="text-secondary">Select an order or create a new one.<br>
+                    <small>Use the Shopper tab to add items to cart, then send to Production Orders.</small></p>
+                </div>
+
+                <!-- Aggregated Materials Table -->
+                <div id="bpOrderAggMaterials" style="display:none;"></div>
+
+                <!-- Price Overrides -->
+                <div id="bpPriceOverrides" class="bp-order-section" style="display:none;">
+                    <div class="bp-order-section-header" onclick="BP.togglePriceOverrides()">
+                        <i class="bi bi-currency-exchange"></i> Price Overrides
+                        <span class="bp-override-count" id="bpOverrideCount">0</span>
+                    </div>
+                    <div class="bp-order-section-body" id="bpOverrideBody" style="display:none;">
+                        <div class="bp-override-list" id="bpOverrideList"></div>
+                        <div class="bp-override-actions mt-2">
+                            <button class="btn btn-sm btn-outline-warning" onclick="BP.clearAllPriceOverrides()">
+                                <i class="bi bi-x-circle"></i> Clear All Overrides
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            <!-- Order Summary -->
+            <div class="bp-order-summary" id="bpOrderSummary" style="display:none;">
+                <div class="summary-row">
+                    <span>Items</span>
+                    <span id="bpSummaryItems">0</span>
+                </div>
+                <div class="summary-row">
+                    <span>Material Cost</span>
+                    <span id="bpSummaryMaterial">-</span>
+                </div>
+                <div class="summary-row">
+                    <span>Facility Cost</span>
+                    <span id="bpSummaryFacility">-</span>
+                </div>
+                <div class="summary-row">
+                    <span>Job Cost</span>
+                    <span id="bpSummaryJob">-</span>
+                </div>
+                <div class="summary-row total">
+                    <span>Grand Total</span>
+                    <span id="bpSummaryGrand">-</span>
+                </div>
+                <div class="summary-row">
+                    <button class="btn btn-sm btn-outline-info w-100 mt-1" onclick="BP.generateBuyList()">
+                        <i class="bi bi-cart3"></i> Buy List
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Order Detail: Placeholder for empty state -->
+        <div class="bp-order-detail active" id="bpOrderPlaceholder">
+            <div class="bp-order-placeholder">
+                <i class="bi bi-inboxes"></i>
+                <p class="text-secondary">No production orders yet.<br>
+                <small>Start by browsing blueprints and adding items to your cart,<br>
+                then use "Send to Production Orders" to create an order.</small></p>
+            </div>
+        </div>
+
+    </div>
+
+</div><!-- /bpTabOrders -->
+
+<!-- ── BPC Stock Threshold Modal ─────────────────────────────── -->
+<!-- ── BPC Stock Tab ───────────────────────────────────────────── -->
+<div class="tab-pane fade" id="bpTabBpcStock">
+
+    <!-- Sub-tabs: Stock | Needed -->
+    <ul class="nav nav-tabs nav-tabs-sm border-bottom border-secondary mb-2" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active small py-1" data-bs-toggle="tab" data-bs-target="#bpBpcSubStock" type="button">
+                <i class="bi bi-archive"></i> BPC Stock
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link small py-1" data-bs-toggle="tab" data-bs-target="#bpBpcSubNeeded" type="button" onclick="BP.bpcRenderNeeded()">
+                <i class="bi bi-exclamation-triangle"></i> Needed BPCs
+            </button>
+        </li>
+    </ul>
+
+    <!-- Sub-tab: BPC Stock -->
+    <div class="tab-content">
+    <div class="tab-pane fade show active" id="bpBpcSubStock">
+
+    <div class="bp-bpc-stock-container">
+
+        <!-- Toolbar -->
+        <div class="bp-order-toolbar">
+            <button class="btn btn-sm btn-outline-success" onclick="BP.bpcAddEntry()">
+                <i class="bi bi-plus-lg"></i> Add BPC
+            </button>
+            <button class="btn btn-sm btn-outline-primary" onclick="BP.bpcLinkFromShopper()">
+                <i class="bi bi-link-45deg"></i> Link from Shopper
+            </button>
+            <button class="btn btn-sm btn-outline-info" onclick="BP.bpcExportCsv()">
+                <i class="bi bi-download"></i> Export CSV
+            </button>
+            <button class="btn btn-sm btn-outline-warning" onclick="BP.bpcAutoGenerateFromAssets()">
+                <i class="bi bi-magic"></i> Auto-Gen BPOs
+            </button>
+            <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="BP.openStockThresholdModal()">
+                <i class="bi bi-sliders2"></i> Thresholds
+            </button>
+        </div>
+
+        <!-- Search / Filter -->
+        <div class="d-flex gap-2 mb-2 align-items-center">
+            <input type="text" class="form-control form-control-sm" id="bpBpcFilter"
+                   placeholder="Search BPC by name..." style="max-width:260px;"
+                   oninput="BP.bpcRenderList()">
+            <select class="form-select form-select-sm" id="bpBpcTypeFilter" style="max-width:140px;"
+                    onchange="BP.bpcRenderList()">
+                <option value="all">All Types</option>
+                <option value="faction">Faction</option>
+                <option value="original_bpo">Original BPO</option>
+                <option value="triglavian">Triglavian</option>
+                <option value="storyline">Storyline</option>
+                <option value="t2_invention">T2 Invention</option>
+                <option value="other">Other</option>
+            </select>
+            <select class="form-select form-select-sm" id="bpBpcStockFilter" style="max-width:130px;"
+                    onchange="BP.bpcRenderList()">
+                <option value="all">All Stock</option>
+                <option value="warning">Warning only</option>
+                <option value="ok">OK</option>
+            </select>
+            <span class="text-secondary small ms-auto" id="bpBpcStatusText">0 entries</span>
+        </div>
+
+        <!-- BPC List (grouped cards) -->
+        <div id="bpBpcListContainer">
+            <div class="text-center text-secondary small py-5">
+                <i class="bi bi-archive" style="font-size:2rem; opacity:0.3;"></i><br>
+                No BPC entries yet.<br>
+                <small>Add BPCs manually or link them from the Shopper tree view.</small>
+            </div>
+        </div>
+
+    </div>
+
+    </div><!-- /bpBpcSubStock -->
+
+    <!-- Sub-tab: Needed BPCs -->
+    <div class="tab-pane fade" id="bpBpcSubNeeded">
+        <div id="bpBpcNeededContainer">
+            <div class="text-center text-secondary small py-5">
+                <i class="bi bi-calculator" style="font-size:2rem; opacity:0.3;"></i><br>
+                No production orders to analyse.<br>
+                <small>Create orders in the Orders tab to see BPC requirements here.</small>
+            </div>
+        </div>
+        <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-sm btn-outline-info" onclick="BP.bpcExportMachine()" title="Export machine-compatible JSON for external tools">
+                <i class="bi bi-code-square"></i> Export Machine JSON
+            </button>
+        </div>
+    </div><!-- /bpBpcSubNeeded -->
+
+    </div><!-- /tab-content -->
+
+</div><!-- /bpTabBpcStock -->
+
+<!-- ── BPC Add/Edit Modal ────────────────────────────────────── -->
+<div class="modal fade" id="bpBpcAddEditModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="bpBpcAddEditTitle"><i class="bi bi-plus-lg"></i> Add BPC Entry</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="BP.bpcCancelAddEdit()"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Hidden fields -->
+                <input type="hidden" id="bpBpcEditId" value="">
+                <input type="hidden" id="bpBpcProductTypeId" value="">
+
+                <!-- Product Name with Autocomplete -->
+                <div class="mb-2 position-relative">
+                    <label class="form-label small text-secondary">Product</label>
+                    <input type="text" class="form-control form-control-sm" id="bpBpcProductSearch"
+                           placeholder="Type product name..." autocomplete="off"
+                           oninput="BP.bpcSearchProduct()" onfocus="BP.bpcSearchProduct()">
+                    <div id="bpBpcProductResults" class="list-group position-absolute w-100 z-3" style="display:none; max-height:200px; overflow-y:auto;"></div>
+                </div>
+
+                <!-- Stock Runs -->
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Stock Runs</label>
+                    <input type="number" class="form-control form-control-sm" id="bpBpcStockRuns" min="1" value="1">
+                </div>
+
+                <!-- Min Runs Warning -->
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Min Runs Warning</label>
+                    <input type="number" class="form-control form-control-sm" id="bpBpcMinWarn" min="1" value="10">
+                </div>
+
+                <!-- BPC Type -->
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">BPC Type</label>
+                    <select class="form-select form-select-sm" id="bpBpcType">
+                        <option value="faction">Faction</option>
+                        <option value="original_bpo" selected>Original BPO</option>
+                        <option value="triglavian">Triglavian</option>
+                        <option value="storyline">Storyline</option>
+                        <option value="t2_invention">T2 Invention</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <!-- Source Note -->
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Source</label>
+                    <input type="text" class="form-control form-control-sm" id="bpBpcSourceNote"
+                           placeholder="e.g. LP Store: 40k LP + 2.5M ISK">
+                </div>
+
+                <!-- Notes -->
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Notes</label>
+                    <textarea class="form-control form-control-sm" id="bpBpcNotes" rows="2" placeholder="Location, details..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal" onclick="BP.bpcCancelAddEdit()">Cancel</button>
+                <button type="button" class="btn btn-sm btn-success" onclick="BP.bpcConfirmAddEdit()"><i class="bi bi-check-lg"></i> Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bpStockThresholdModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="bi bi-sliders2"></i> BPC Stock Level Thresholds</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label small text-secondary">Global Default (min BPC runs)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="bpStockGlobalDefault" min="1" value="10" style="max-width:100px;">
+                        <button class="btn btn-outline-primary" onclick="BP.saveStockGlobalDefault()">Save Global</button>
+                    </div>
+                    <small class="text-secondary">Products with fewer total BPC runs than this threshold will be highlighted in the tree.</small>
+                </div>
+                <hr class="border-secondary">
+                <div class="mb-2">
+                    <label class="form-label small text-secondary d-flex justify-content-between">
+                        <span>Per-Product Overrides</span>
+                        <small id="bpStockOverrideCount">0 overrides</small>
+                    </label>
+                    <div id="bpStockOverrideList" style="max-height:250px; overflow-y:auto;">
+                        <div class="text-center text-secondary small py-2">No per-product overrides set.</div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Quick Add Per-Product Override</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="bpStockOverrideTypeId" placeholder="Product Type ID" style="max-width:120px;">
+                        <input type="number" class="form-control" id="bpStockOverrideMinRuns" min="1" placeholder="Min Runs" style="max-width:80px;">
+                        <button class="btn btn-outline-success" onclick="BP.saveStockOverride()">Add</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Config Panel Modal (Phase F2) ──────────────────────────── -->
+<div class="modal fade" id="bpConfigModal" tabindex="-1" aria-labelledby="bpConfigModalLabel">
+<div class="modal-dialog modal-lg modal-dialog-scrollable">
+<div class="modal-content" style="background:#1a2330; border:1px solid #2a3a4a;">
+    <div class="modal-header" style="border-bottom:1px solid #2a3a4a;">
+        <h6 class="modal-title" id="bpConfigModalLabel"><i class="bi bi-gear"></i> Facility & Price Configuration</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body" style="font-size:0.82rem;">
+
+        <!-- ── Station Presets ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">
+                Station Presets
+                <span class="text-secondary small ms-2" style="font-weight:normal;">Save/load facility configurations</span>
+            </div>
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <select class="form-select form-select-sm" id="bpCfgPresetSelect" style="width:auto;min-width:180px;font-size:0.75rem;">
+                    <option value="">-- Select preset --</option>
+                </select>
+                <button class="btn btn-sm btn-outline-success" onclick="BP.loadStationPreset()" title="Load selected preset" style="font-size:0.7rem;">
+                    <i class="bi bi-upload"></i> Load
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="BP.deleteStationPreset()" title="Delete selected preset" style="font-size:0.7rem;">
+                    <i class="bi bi-trash"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-warning" onclick="BP.saveStationPreset()" title="Save current config as preset" style="font-size:0.7rem;">
+                    <i class="bi bi-save"></i> Save Current
+                </button>
+            </div>
+        </div>
+
+        <!-- ── Station / Facility ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">Station / Facility</div>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <label class="form-label mb-0 text-secondary">Facility Type</label>
+                    <select class="form-select form-select-sm" id="bpCfgFacilityType">
+                        <option value="npc_station">NPC Station</option>
+                        <option value="player_structure">Player Structure</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-0 text-secondary">Rigs</label>
+                    <select class="form-select form-select-sm" id="bpCfgRigs">
+                        <option value="none">None</option>
+                        <option value="t1">T1 Manufacturing Rig</option>
+                        <option value="t2">T2 Manufacturing Rig</option>
+                    </select>
+                </div>
+                <div class="col-md-8">
+                    <label class="form-label mb-0 text-secondary">Station / Structure</label>
+                    <select class="form-select form-select-sm" id="bpCfgStation">
+                        <option value="">-- Select station --</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label mb-0 text-secondary">Tax Rate (%)</label>
+                    <div class="d-flex align-items-center gap-2">
+                        <input type="range" class="form-range flex-fill" id="bpCfgTax" min="0" max="25" value="5.0" step="0.5" style="height:6px;">
+                        <span class="text-warning small" id="bpCfgTaxVal" style="min-width:40px;text-align:right;">5.0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── System Cost Index ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">System Cost Index</div>
+            <div class="row g-2 align-items-center">
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="bpCfgIndexMode" id="bpCfgIndexAuto" value="auto" checked>
+                        <label class="form-check-label" for="bpCfgIndexAuto">Automatic (via System Name)</label>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 mt-1 ms-4">
+                        <input type="text" class="form-control form-control-sm" id="bpCfgSystemName" placeholder="e.g. Irjunen" style="width:160px;font-size:0.75rem;">
+                        <button class="btn btn-sm btn-outline-info" onclick="BP.lookupSystemCostIndex()" style="font-size:0.72rem;">
+                            <i class="bi bi-search"></i> Lookup
+                        </button>
+                        <span class="text-info small" id="bpCfgIndexResult">—</span>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="bpCfgIndexMode" id="bpCfgIndexManual" value="manual">
+                        <label class="form-check-label" for="bpCfgIndexManual">Manual</label>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 mt-1 ms-4">
+                        <input type="number" class="form-control form-control-sm" id="bpCfgIndexManualVal" min="0" max="100" step="0.01" value="5.0" style="width:100px;font-size:0.75rem;" disabled>
+                        <span class="text-secondary small">%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Price Source ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">Price Source</div>
+            <div class="d-flex gap-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="bpCfgPriceSource" id="bpCfgPriceSell" value="jita_sell" checked>
+                    <label class="form-check-label" for="bpCfgPriceSell">Jita Sell (lowest sell order)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="bpCfgPriceSource" id="bpCfgPriceBuy" value="jita_buy">
+                    <label class="form-check-label" for="bpCfgPriceBuy">Jita Buy (highest buy order)</label>
+                </div>
+            </div>
+            <div class="small text-secondary mt-1" id="bpCfgPriceNote">
+                Uses the lowest sell price from Jita market.
+            </div>
+        </div>
+
+        <!-- ── Skills ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">Skills — <span id="bpCfgSkillCharName">Nadja</span></div>
+            <div class="row g-2">
+                <div class="col-4 col-md-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Industry</label>
+                    <div class="d-flex align-items-center">
+                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillInd">
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
+                        </select>
+                        <span class="bp-skill-indicator" id="bpSkillIndDot" style="background:#28a745;"></span>
+                    </div>
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Adv Industry</label>
+                    <div class="d-flex align-items-center">
+                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillAdvInd">
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
+                        </select>
+                        <span class="bp-skill-indicator" id="bpSkillAdvIndDot" style="background:#28a745;"></span>
+                    </div>
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Supply Chain</label>
+                    <div class="d-flex align-items-center">
+                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillSup">
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option>
+                        </select>
+                        <span class="bp-skill-indicator" id="bpSkillSupDot" style="background:#fd7e14;"></span>
+                    </div>
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Mass Prod</label>
+                    <div class="d-flex align-items-center">
+                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillMP">
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
+                        </select>
+                        <span class="bp-skill-indicator" id="bpSkillMPDot" style="background:#28a745;"></span>
+                    </div>
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Adv Mass P</label>
+                    <div class="d-flex align-items-center">
+                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillAMP">
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option>
+                        </select>
+                        <span class="bp-skill-indicator" id="bpSkillAMPDot" style="background:#fd7e14;"></span>
+                    </div>
+                </div>
+                <div class="col-4 col-md-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Capital Ship</label>
+                    <div class="d-flex align-items-center">
+                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillCap">
+                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                            <option value="3" selected>3</option><option value="4">4</option><option value="5">5</option>
+                        </select>
+                        <span class="bp-skill-indicator" id="bpSkillCapDot" style="background:#6c757d;"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="small text-secondary mt-1">
+                <span class="bp-skill-dot" style="background:#28a745;"></span> 5
+                <span class="bp-skill-dot" style="background:#fd7e14;"></span> 4
+                <span class="bp-skill-dot" style="background:#6c757d;"></span> 3
+                <span class="bp-skill-dot" style="background:#dc3545;"></span> <3
+            </div>
+        </div>
+
+        <!-- ── Implants ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">Implants</div>
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label class="form-label mb-0 text-secondary">Slot 7 (Material Efficiency)</label>
+                    <select class="form-select form-select-sm" id="bpCfgImplant7">
+                        <option value="">None</option>
+                        <option value="beancounter_industry">Zainou 'Beancounter' Industry BX-80 (-1% Mat)</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label mb-0 text-secondary">Slot 8 (Time Efficiency)</label>
+                    <select class="form-select form-select-sm" id="bpCfgImplant8">
+                        <option value="">None</option>
+                        <option value="gnome">Zainou 'Gnome' K-Implant (-1% Time)</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label mb-0 text-secondary">Slot 10</label>
+                    <select class="form-select form-select-sm" id="bpCfgImplant10">
+                        <option value="">None</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Character ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">Character</div>
+            <div class="row g-2 align-items-center">
+                <div class="col-md-6">
+                    <label class="form-label mb-0 text-secondary">Character Name</label>
+                    <input type="text" class="form-control form-control-sm" id="bpCfgCharName" value="Nadja" style="font-size:0.75rem;">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-0 text-secondary">Character ID</label>
+                    <input type="number" class="form-control form-control-sm" id="bpCfgCharId" value="0" style="font-size:0.75rem;">
+                </div>
+            </div>
+            <div class="small text-secondary mt-1">Registered Characters</div>
+            <div class="bp-char-list" id="bpCfgCharList"></div>
+        </div>
+
+    </div>
+    <div class="modal-footer" style="border-top:1px solid #2a3a4a;">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="BP.applyConfigPanel()">
+            <i class="bi bi-check2"></i> Apply & Save
+        </button>
+    </div>
+</div>
+</div>
+</div>
+
+<!-- ── Station Selector Modal (Send-to-Order) ─────────────────────────── -->
+<div class="modal fade" id="bpStationSelectorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content" style="background:#1a2330; border:1px solid #2a3a4a;">
+            <div class="modal-header" style="border-bottom:1px solid #2a3a4a;">
+                <h6 class="modal-title"><i class="bi bi-geo-alt"></i> Station Configuration</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="font-size:0.82rem;">
+                <div class="mb-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">Facility Type</label>
+                    <select class="form-select form-select-sm" id="bpSelFacilityType">
+                        <option value="npc_station">NPC Station</option>
+                        <option value="player_structure">Player Structure</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">Rigs</label>
+                    <select class="form-select form-select-sm" id="bpSelRigs">
+                        <option value="none">None</option>
+                        <option value="t1">T1 Manufacturing Rig</option>
+                        <option value="t2">T2 Manufacturing Rig</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">System Cost Index</label>
+                    <div class="d-flex align-items-center gap-1">
+                        <input type="text" class="form-control form-control-sm" id="bpSelSystemName" placeholder="System name" style="font-size:0.75rem;width:130px;">
+                        <button class="btn btn-sm btn-outline-info" onclick="BP.selLookupSystemCostIndex()" style="font-size:0.65rem;padding:1px 6px;">
+                            <i class="bi bi-search"></i>
+                        </button>
+                        <span class="text-info small" id="bpSelIdxResult" style="min-width:50px;">—</span>
+                    </div>
+                    <div class="mt-1">
+                        <label class="small text-secondary" style="font-size:0.7rem;">Manual override (%)</label>
+                        <input type="number" class="form-control form-control-sm" id="bpSelIdxManual" step="0.01" min="0" max="50" value="5.0" style="font-size:0.75rem;width:100px;">
+                    </div>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">Price Source</label>
+                    <div class="d-flex gap-3 mt-1">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="bpSelPriceSource" id="bpSelPriceSell" value="jita_sell" checked>
+                            <label class="form-check-label small" for="bpSelPriceSell">Jita Sell</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="bpSelPriceSource" id="bpSelPriceBuy" value="jita_buy">
+                            <label class="form-check-label small" for="bpSelPriceBuy">Jita Buy</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #2a3a4a;">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-success" onclick="BP.confirmStationSelector()">
+                    <i class="bi bi-check2"></i> Confirm & Create
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Buy List Modal ──────────────────────────────────────────────── -->
+<div class="modal fade" id="bpBuyListModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content" style="background:#1a2330; border:1px solid #2a3a4a;">
+            <div class="modal-header" style="border-bottom:1px solid #2a3a4a;">
+                <h6 class="modal-title"><i class="bi bi-cart3"></i> Buy List</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="font-size:0.82rem;">
+                <!-- Aggregated buy materials table -->
+                <div id="bpBuyListBody">
+                    <div class="text-center text-secondary small py-4">
+                        <i class="bi bi-hourglass-split"></i> Loading...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #2a3a4a;">
+                <span class="text-secondary small me-auto" id="bpBuyListSummary"></span>
+                <button class="btn btn-sm btn-outline-info" onclick="BP.buyListCopyClipboard()" title="Copy to clipboard">
+                    <i class="bi bi-clipboard"></i> Copy
+                </button>
+                <button class="btn btn-sm btn-outline-success" onclick="BP.buyListExportCsv()" title="Export as CSV">
+                    <i class="bi bi-download"></i> CSV
+                </button>
+                <button class="btn btn-sm btn-outline-warning" onclick="BP.buyListExportText()" title="Export as plain text">
+                    <i class="bi bi-file-text"></i> Text
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Set authenticated character from session -->
+<script>
+    window.BP_CHARACTER_ID = {{ character_id or 0 }};
+</script>
+
+<!-- Blueprint Shopper JS -->
+<script src="{{ static_url('js/bp-browser.js') }}"></script>
+
+</body>
+</html>

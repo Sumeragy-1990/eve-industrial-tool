@@ -1,0 +1,2182 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EVE Industrial Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ static_url('css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark bg-dark border-bottom border-secondary sticky-top">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="bi bi-boxes"></i> EVE Industrial Tool
+            </span>
+            <div class="d-flex align-items-center gap-2">
+                <a href="/blueprints" class="btn btn-outline-warning btn-sm" title="Blueprint Shopper">
+                    <i class="bi bi-cart3"></i> Blueprints
+                </a>
+                <div id="syncStatus" class="text-secondary small d-none">
+                    <i class="bi bi-arrow-repeat spin"></i> Syncing...
+                </div>
+                <button class="btn btn-outline-success btn-sm" id="btnBootstrap" title="Initial setup – SDE import + database init">
+                    <i class="bi bi-rocket-takeoff"></i> Setup
+                </button>
+                <button class="btn btn-outline-warning btn-sm" id="btnSdeUpdate" title="Update SDE (item database)">
+                    <i class="bi bi-cloud-download"></i> Update SDE
+                </button>
+                <button class="btn btn-outline-info btn-sm" id="btnLogin"
+                        title="Add another EVE character to this account. If it already belongs to a different account, you'll be offered to merge them.">
+                    <i class="bi bi-person-plus"></i> Add Account
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-3">
+        <div class="row">
+            <!-- Sidebar (characters only) -->
+            <div class="col-12 col-md-3 col-xl-2 mb-3">
+                <div class="card bg-dark border-secondary">
+                    <div class="card-header">
+                        <i class="bi bi-people"></i> Characters
+                    </div>
+                    <div class="card-body p-2" id="characterList">
+                        <div class="text-secondary small text-center" id="charNone">
+                            <i class="bi bi-person"></i> No characters yet.<br>
+                            <small>Click "Add Account" to log in via EVE SSO.</small>
+                        </div>
+                    </div>
+                    <div class="card-footer p-1 text-center">
+                        <button class="btn btn-outline-danger btn-sm w-100" onclick="deleteAccount()"
+                                title="Permanently delete your entire account and all associated data">
+                            <i class="bi bi-trash"></i> Delete Account
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ── Sidebar Navigation ──────────────────────── -->
+                <div class="mt-3" id="sidebarNav">
+                    <div class="nav-section">
+                        <div class="nav-heading">Assets</div>
+                        <nav class="nav flex-column nav-pills" role="tablist">
+                            <button class="nav-link active" id="tab-assets" data-bs-toggle="tab"
+                                    data-bs-target="#panel-assets" type="button" role="tab"
+                                    aria-controls="panel-assets" aria-selected="true">
+                                <i class="bi bi-boxes"></i> Assets
+                            </button>
+                            <button class="nav-link" id="tab-members" data-bs-toggle="tab"
+                                    data-bs-target="#panel-members" type="button" role="tab"
+                                    aria-controls="panel-members" aria-selected="false">
+                                <i class="bi bi-people"></i> Corp Members
+                            </button>
+                        </nav>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-heading">Inventory</div>
+                        <nav class="nav flex-column nav-pills" role="tablist">
+                            <button class="nav-link" id="tab-restock" data-bs-toggle="tab"
+                                    data-bs-target="#panel-restock" type="button" role="tab"
+                                    aria-controls="panel-restock" aria-selected="false">
+                                <i class="bi bi-cart"></i> Corp Restock
+                            </button>
+                            <button class="nav-link" id="tab-char-restock" data-bs-toggle="tab"
+                                    data-bs-target="#panel-char-restock" type="button" role="tab"
+                                    aria-controls="panel-char-restock" aria-selected="false">
+                                <i class="bi bi-person-cart"></i> My Restock
+                            </button>
+                            <button class="nav-link" id="tab-selling" data-bs-toggle="tab"
+                                    data-bs-target="#panel-selling" type="button" role="tab"
+                                    aria-controls="panel-selling" aria-selected="false">
+                                <i class="bi bi-cash-coin"></i> Selling Tool
+                            </button>
+                        </nav>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-heading">Manufacturing</div>
+                        <nav class="nav flex-column nav-pills" role="tablist">
+                            <button class="nav-link" id="tab-industry" data-bs-toggle="tab"
+                                    data-bs-target="#panel-industry" type="button" role="tab"
+                                    aria-controls="panel-industry" aria-selected="false">
+                                <i class="bi bi-gear"></i> Industry Jobs
+                            </button>
+                            <button class="nav-link" id="tab-build" data-bs-toggle="tab"
+                                    data-bs-target="#panel-build" type="button" role="tab"
+                                    aria-controls="panel-build" aria-selected="false">
+                                <i class="bi bi-hammer"></i> Ship Builder
+                            </button>
+                            <button class="nav-link" id="tab-invention" data-bs-toggle="tab"
+                                    data-bs-target="#panel-invention" type="button" role="tab"
+                                    aria-controls="panel-invention" aria-selected="false">
+                                <i class="bi bi-flask"></i> T2 Invention
+                            </button>
+                            <button class="nav-link" id="tab-blueprints" data-bs-toggle="tab"
+                                    data-bs-target="#panel-blueprints" type="button" role="tab"
+                                    aria-controls="panel-blueprints" aria-selected="false">
+                                <i class="bi bi-diagram-3"></i> Blueprints
+                            </button>
+                        </nav>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-heading">Market</div>
+                        <nav class="nav flex-column nav-pills" role="tablist">
+                            <button class="nav-link" id="tab-market" data-bs-toggle="tab"
+                                    data-bs-target="#panel-market" type="button" role="tab"
+                                    aria-controls="panel-market" aria-selected="false">
+                                <i class="bi bi-graph-up"></i> Order Browser
+                            </button>
+                            <button class="nav-link" id="tab-item-search" data-bs-toggle="tab"
+                                    data-bs-target="#panel-item-search" type="button" role="tab"
+                                    aria-controls="panel-item-search" aria-selected="false">
+                                <i class="bi bi-search"></i> Item Search
+                            </button>
+                            <button class="nav-link" id="tab-type-browser" data-bs-toggle="tab"
+                                    data-bs-target="#panel-type-browser" type="button" role="tab"
+                                    aria-controls="panel-type-browser" aria-selected="false">
+                                <i class="bi bi-list-ul"></i> Type Browser
+                            </button>
+                        </nav>
+                    </div>
+                    <div class="nav-section">
+                        <div class="nav-heading">Settings</div>
+                        <nav class="nav flex-column nav-pills" role="tablist">
+                            <button class="nav-link" id="tab-sync-all" data-bs-toggle="tab"
+                                    data-bs-target="#panel-sync-all" type="button" role="tab"
+                                    aria-controls="panel-sync-all" aria-selected="false">
+                                <i class="bi bi-arrow-repeat"></i> Sync All
+                            </button>
+                            <button class="nav-link" id="tab-location-aliases" data-bs-toggle="tab"
+                                    data-bs-target="#panel-location-aliases" type="button" role="tab"
+                                    aria-controls="panel-location-aliases" aria-selected="false">
+                                <i class="bi bi-tags"></i> Location Aliases
+                            </button>
+                            <button class="nav-link" id="tab-corp-warehouses" data-bs-toggle="tab"
+                                    data-bs-target="#panel-corp-warehouses" type="button" role="tab"
+                                    aria-controls="panel-corp-warehouses" aria-selected="false">
+                                <i class="bi bi-warehouse"></i> Corp Warehouses
+                            </button>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-12 col-md-9 col-xl-10">
+
+                <!-- ── Assets Panel ────────────────────────────── -->
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="panel-assets" role="tabpanel">
+                        <!-- Stats bar -->
+                        <div class="row mb-2 g-2" id="statsBar">
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Total Items</div>
+                                    <div class="h5 mb-0" id="statTotal">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Unique Types</div>
+                                    <div class="h5 mb-0" id="statUnique">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Locations</div>
+                                    <div class="h5 mb-0" id="statLocations">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Last Sync</div>
+                                    <div class="h6 mb-0" id="statLastSync">-</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Division Cards (corp view) -->
+                        <div id="divisionCards" class="mb-2 d-none">
+                            <div class="d-flex gap-2 flex-wrap" id="divisionCardsContainer">
+                            </div>
+                        </div>
+
+                        <!-- Category Pills -->
+                        <div class="mb-2">
+                            <div class="d-flex gap-1 flex-wrap" id="categoryPills">
+                                <button class="btn btn-sm btn-outline-secondary active" data-cat="" onclick="filterByCategory('')">All</button>
+                                <button class="btn btn-sm btn-outline-info" data-cat="ship" onclick="filterByCategory('ship')">Ships</button>
+                                <button class="btn btn-sm btn-outline-primary" data-cat="module" onclick="filterByCategory('module')">Modules</button>
+                                <button class="btn btn-sm btn-outline-warning" data-cat="charge" onclick="filterByCategory('charge')">Charges</button>
+                                <button class="btn btn-sm btn-outline-danger" data-cat="drone" onclick="filterByCategory('drone')">Drones</button>
+                                <button class="btn btn-sm btn-outline-success" data-cat="material" onclick="filterByCategory('material')">Materials</button>
+                                <button class="btn btn-sm btn-outline-cyan" data-cat="blueprint" onclick="filterByCategory('blueprint')">Blueprints</button>
+                                <button class="btn btn-sm btn-outline-light" data-cat="implant" onclick="filterByCategory('implant')">Implants</button>
+                                <button class="btn btn-sm btn-outline-secondary" data-cat="structure" onclick="filterByCategory('structure')">Structures</button>
+                            </div>
+                        </div>
+
+                        <!-- Search / Filter Bar -->
+                        <div class="row g-1 mb-2">
+                            <div class="col-12 col-md-4">
+                                <input type="text" class="form-control form-control-sm" id="filterSearch"
+                                       placeholder="Search item name...">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <select class="form-select form-select-sm" id="filterLocation">
+                                    <option value="">All Locations</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-3 d-none" id="divisionFilterGroup">
+                                <select class="form-select form-select-sm" id="filterDivision">
+                                    <option value="">All Divisions</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <button class="btn btn-sm btn-outline-secondary w-100" id="btnApplyFilter">
+                                    <i class="bi bi-search"></i> Filter
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- View Mode Toggle (inside assets, small) -->
+                        <div class="mb-2">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <input type="radio" class="btn-check" name="viewMode" id="viewChar" value="char" checked>
+                                <label class="btn btn-outline-primary" for="viewChar">Character</label>
+                                <input type="radio" class="btn-check" name="viewMode" id="viewCorp" value="corp">
+                                <label class="btn btn-outline-primary" for="viewCorp">Corporation</label>
+                            </div>
+                        </div>
+
+                        <!-- Asset Table -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-table"></i> <span id="tableTitle">Assets</span></span>
+                                <div>
+                                    <button class="btn btn-success btn-sm" id="btnSync">
+                                        <i class="bi bi-arrow-repeat"></i> Sync Now
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0" id="assetTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Item</th>
+                                                <th class="text-end">Qty</th>
+                                                <th class="text-end">Vol (m³)</th>
+                                                <th class="text-end">Total m³</th>
+                                                <th>Location</th>
+                                                <th>Flag</th>
+                                                <th class="corp-col">Division</th>
+                                                <th>Category</th>
+                                                <th class="owner-col">Owner</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="assetTableBody">
+                                            <tr>
+                                                <td colspan="9" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-inbox"></i> No data. Add a character and sync.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <nav>
+                                    <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination">
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Corp Members Panel ───────────────────── -->
+                    <div class="tab-pane fade" id="panel-members" role="tabpanel">
+                        <!-- Member Stats bar -->
+                        <div class="row mb-2 g-2" id="memberStatsBar">
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Total Members</div>
+                                    <div class="h5 mb-0" id="memberStatTotal">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Online</div>
+                                    <div class="h5 mb-0 text-success" id="memberStatOnline">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Offline</div>
+                                    <div class="h5 mb-0 text-secondary" id="memberStatOffline">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Last Sync</div>
+                                    <div class="h6 mb-0" id="memberStatLastSync">-</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Member Table -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-people"></i> Corp Members</span>
+                                <div>
+                                    <button class="btn btn-success btn-sm" id="btnMemberSync">
+                                        <i class="bi bi-arrow-repeat"></i> Sync Members
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0" id="memberTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Character</th>
+                                                <th>Status</th>
+                                                <th>Location</th>
+                                                <th>Ship</th>
+                                                <th>Last Login</th>
+                                                <th>Last Logout</th>
+                                                <th>Logins</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="memberTableBody">
+                                            <tr>
+                                                <td colspan="7" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-people"></i> No members synced yet.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <nav>
+                                    <ul class="pagination pagination-sm justify-content-center mb-0" id="memberPagination">
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Restock Panel ────────────────────────── -->
+                    <div class="tab-pane fade" id="panel-restock" role="tabpanel">
+                        <div class="row g-2 mb-2">
+                            <div class="col">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="restockViewMode" id="restockViewLists" value="lists" checked>
+                                    <label class="btn btn-outline-primary" for="restockViewLists">My Lists</label>
+                                    <input type="radio" class="btn-check" name="restockViewMode" id="restockViewDetail" value="detail">
+                                    <label class="btn btn-outline-primary" for="restockViewDetail">List Detail</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <button class="btn btn-success btn-sm" id="btnCreateRestockList" onclick="showCreateListModal()">
+                                    <i class="bi bi-plus-lg"></i> New List
+                                </button>
+                                <button class="btn btn-info btn-sm" id="btnRecalcRestock" onclick="recalculateCurrentList()">
+                                    <i class="bi bi-arrow-repeat"></i> Recalculate
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Restock Lists View -->
+                        <div id="restockListsView">
+                            <div class="row g-2 mb-2" id="restockListsContainer"></div>
+                        </div>
+
+                        <!-- Restock List Detail View -->
+                        <div id="restockDetailView" class="d-none">
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-cart"></i> <span id="restockDetailName">List</span></span>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-warning" onclick="showAddItemModal()">
+                                            <i class="bi bi-plus-lg"></i> Add Item
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info" onclick="showTemplateModal()">
+                                            <i class="bi bi-file-earmark"></i> Add Template
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="showBuyText()">
+                                            <i class="bi bi-clipboard"></i> Buy Text
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" onclick="deleteCurrentList()">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-light" onclick="backToLists()">
+                                            <i class="bi bi-arrow-left"></i> Back
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Summary Bar -->
+                            <div class="row g-1 mb-2" id="restockSummaryBar">
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Items</div>
+                                        <div class="h5 mb-0" id="restockStatItems">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">To Buy</div>
+                                        <div class="h5 mb-0 text-warning" id="restockStatToBuy">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Est. Cost</div>
+                                        <div class="h5 mb-0 text-info" id="restockStatCost">-</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Restock Items Table -->
+                            <div class="card bg-dark border-secondary">
+                                <div class="card-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-striped table-hover mb-0" id="restockTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Item</th>
+                                                    <th class="text-end">Target</th>
+                                                    <th class="text-end">Stock</th>
+                                                    <th class="text-end">Gap</th>
+                                                    <th class="text-end">To Buy</th>
+                                                    <th class="text-end">Est. Cost</th>
+                                                    <th>Group</th>
+                                                    <th></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="restockTableBody">
+                                                <tr>
+                                                    <td colspan="8" class="text-center text-secondary py-4">
+                                                        <i class="bi bi-inbox"></i> No items in this list.
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Character Restock Panel (Phase 4C) ──── -->
+                    <div class="tab-pane fade" id="panel-char-restock" role="tabpanel" aria-labelledby="tab-char-restock">
+                        <div class="row g-2 mb-2">
+                            <div class="col">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="charRestockViewMode" id="charRestockViewLists" value="lists" checked>
+                                    <label class="btn btn-outline-primary" for="charRestockViewLists">My Lists</label>
+                                    <input type="radio" class="btn-check" name="charRestockViewMode" id="charRestockViewDetail" value="detail">
+                                    <label class="btn btn-outline-primary" for="charRestockViewDetail">List Detail</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <button class="btn btn-success btn-sm" onclick="showCharCreateListModal()">
+                                    <i class="bi bi-plus-lg"></i> New List
+                                </button>
+                                <button class="btn btn-info btn-sm" onclick="charRecalculateCurrentList()">
+                                    <i class="bi bi-arrow-repeat"></i> Recalculate
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Lists View -->
+                        <div id="charRestockListsView">
+                            <div class="row g-2 mb-2" id="charRestockListsContainer"></div>
+                        </div>
+
+                        <!-- List Detail View -->
+                        <div id="charRestockDetailView" class="d-none">
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <span><i class="bi bi-person-cart"></i> <span id="charRestockDetailName">List</span></span>
+                                    <div>
+                                        <button class="btn btn-sm btn-outline-warning" onclick="charShowAddItemModal()">
+                                            <i class="bi bi-plus-lg"></i> Add Item
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-info" onclick="charShowTemplateModal()">
+                                            <i class="bi bi-file-earmark"></i> Add Template
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="charShowBuyText()">
+                                            <i class="bi bi-clipboard"></i> Buy Text
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="charBackToLists()">
+                                            <i class="bi bi-arrow-left"></i> Back
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Items Table -->
+                            <div class="table-responsive" style="max-height: 500px;">
+                                <table class="table table-dark table-sm table-hover">
+                                    <thead class="sticky-top">
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Category</th>
+                                            <th>Target</th>
+                                            <th>Stock</th>
+                                            <th>Gap</th>
+                                            <th>To Buy</th>
+                                            <th>Avg Price</th>
+                                            <th>Est. Cost</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="charRestockItemsBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Selling Panel ────────────────────────────── -->
+                    <div class="tab-pane fade" id="panel-selling" role="tabpanel" aria-labelledby="tab-selling">
+                        <!-- Toolbar: Filters & Controls -->
+                        <div class="row g-2 mb-2 align-items-end">
+                            <div class="col-auto">
+                                <label class="form-label form-label-sm text-secondary mb-1"><small>Markdown %</small></label>
+                                <input type="number" class="form-control form-control-sm" id="sellMarkdown"
+                                       value="10" min="0" max="100" step="0.5" style="width:80px">
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label form-label-sm text-secondary mb-1"><small>Min Sell Price</small></label>
+                                <input type="number" class="form-control form-control-sm" id="sellMinPrice"
+                                       placeholder="ISK" step="0.01" style="width:120px">
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label form-label-sm text-secondary mb-1"><small>Category</small></label>
+                                <select class="form-select form-select-sm" id="sellCategory" style="width:140px">
+                                    <option value="">All Categories</option>
+                                    <option value="minerals">Minerals</option>
+                                    <option value="ships">Ships</option>
+                                    <option value="modules">Modules</option>
+                                    <option value="drones">Drones</option>
+                                    <option value="charges">Charges</option>
+                                    <option value="implants">Implants</option>
+                                </select>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label form-label-sm text-secondary mb-1"><small>Sort By</small></label>
+                                <select class="form-select form-select-sm" id="sellSortBy" style="width:130px">
+                                    <option value="total_value">Total Value</option>
+                                    <option value="quantity">Quantity</option>
+                                    <option value="price">Proposed Price</option>
+                                    <option value="min_sell">Min Sell</option>
+                                    <option value="spread">Spread</option>
+                                </select>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label form-label-sm text-secondary mb-1"><small>&nbsp;</small></label>
+                                <button class="btn btn-sm btn-outline-info w-100" id="btnLoadSelling">
+                                    <i class="bi bi-search"></i> Load
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Summary Bar -->
+                        <div class="row g-1 mb-2" id="sellSummaryBar" style="display:none">
+                            <div class="col">
+                                <div class="d-flex flex-wrap gap-3 text-small">
+                                    <span class="text-secondary">Items: <strong id="sellSummaryItems">0</strong></span>
+                                    <span class="text-info">Total Value: <strong id="sellSummaryValue">0 ISK</strong></span>
+                                    <span class="text-success">@Market: <strong id="sellSummarySell">0 ISK</strong></span>
+                                    <span class="text-warning">Buy Value: <strong id="sellSummaryBuy">0 ISK</strong></span>
+                                    <span class="text-secondary">Markdown: <strong id="sellSummaryMkdn">10%</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Results Table -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Item</th>
+                                                <th>Category</th>
+                                                <th class="text-end">Qty</th>
+                                                <th class="text-end">Min Sell</th>
+                                                <th class="text-end">Max Buy</th>
+                                                <th class="text-end">Spread</th>
+                                                <th class="text-end">Proposed Price</th>
+                                                <th class="text-end">Proposed Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="sellItemsBody">
+                                            <tr>
+                                                <td colspan="8" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-cash-coin"></i> Select a character and click Load
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Item Search Panel ───────────────────────── -->
+                    <div class="tab-pane fade" id="panel-item-search" role="tabpanel" aria-labelledby="tab-item-search">
+                        <div class="row g-2 mb-2">
+                            <div class="col-12 col-md-6">
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" id="itemSearchQuery"
+                                           placeholder="Search item name..." autocomplete="off">
+                                    <button class="btn btn-outline-info" id="btnItemSearch">
+                                        <i class="bi bi-search"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <select class="form-select form-select-sm" id="itemSearchCategory">
+                                    <option value="">All Categories</option>
+                                    <option value="minerals">Minerals</option>
+                                    <option value="ships">Ships</option>
+                                    <option value="modules">Modules</option>
+                                    <option value="drones">Drones</option>
+                                    <option value="charges">Charges</option>
+                                    <option value="implants">Implants</option>
+                                    <option value="blueprint">Blueprints</option>
+                                    <option value="material">Materials</option>
+                                </select>
+                            </div>
+                            <div class="col-3 col-md-2">
+                                <select class="form-select form-select-sm" id="itemSearchLimit">
+                                    <option value="20">20</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                            <div class="col-3 col-md-2">
+                                <button class="btn btn-sm btn-outline-secondary w-100" id="btnItemSearchCopyAll">
+                                    <i class="bi bi-clipboard"></i> Copy IDs
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Results count -->
+                        <div class="mb-1 text-secondary small" id="itemSearchInfo"></div>
+
+                        <!-- Results Table -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th class="text-end" style="width:100px">Type ID</th>
+                                                <th>Item Name</th>
+                                                <th>Group</th>
+                                                <th>Category</th>
+                                                <th class="text-center" style="width:80px">Copy</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="itemSearchBody">
+                                            <tr>
+                                                <td colspan="5" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-search"></i> Search for items by name
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Type Browser Panel ──────────────────────── -->
+                    <div class="tab-pane fade" id="panel-type-browser" role="tabpanel" aria-labelledby="tab-type-browser">
+                        <!-- Filters -->
+                        <div class="row g-2 mb-2">
+                            <div class="col-12 col-md-4">
+                                <input type="text" class="form-control form-control-sm" id="typeBrowseSearch"
+                                       placeholder="Search by name..." autocomplete="off">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <select class="form-select form-select-sm" id="typeBrowseCategory">
+                                    <option value="">All Categories</option>
+                                    <option value="Ship">Ships</option>
+                                    <option value="Module">Modules</option>
+                                    <option value="Charge">Charges</option>
+                                    <option value="Drone">Drones</option>
+                                    <option value="Implant">Implants</option>
+                                    <option value="Material">Materials</option>
+                                    <option value="Blueprint">Blueprints</option>
+                                    <option value="Structure">Structures</option>
+                                    <option value="Skill">Skills</option>
+                                    <option value="Commodity">Commodities</option>
+                                </select>
+                            </div>
+                            <div class="col-3 col-md-2">
+                                <select class="form-select form-select-sm" id="typeBrowseSort">
+                                    <option value="name">Name</option>
+                                    <option value="type_id">Type ID</option>
+                                    <option value="volume">Volume</option>
+                                    <option value="mass">Mass</option>
+                                </select>
+                            </div>
+                            <div class="col-3 col-md-2">
+                                <select class="form-select form-select-sm" id="typeBrowsePerPage">
+                                    <option value="25">25</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="100">100</option>
+                                    <option value="200">200</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <button class="btn btn-sm btn-outline-info w-100" id="btnTypeBrowse">
+                                    <i class="bi bi-search"></i> Browse
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="text-secondary small" id="typeBrowseInfo"></span>
+                            <nav>
+                                <ul class="pagination pagination-sm mb-0" id="typeBrowsePagination"></ul>
+                            </nav>
+                        </div>
+
+                        <!-- Results -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th class="text-end" style="width:80px">ID</th>
+                                                <th>Name</th>
+                                                <th>Category</th>
+                                                <th>Group</th>
+                                                <th class="text-end">Volume</th>
+                                                <th class="text-end">Mass</th>
+                                                <th class="text-center">Tech</th>
+                                                <th class="text-center">Meta</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="typeBrowseBody">
+                                            <tr>
+                                                <td colspan="8" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-list-ul"></i> Set filters and click Browse
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Bottom Pagination -->
+                        <div class="d-flex justify-content-center mt-1">
+                            <nav>
+                                <ul class="pagination pagination-sm mb-0" id="typeBrowsePaginationBottom"></ul>
+                            </nav>
+                        </div>
+                    </div>
+
+                    <!-- ── Industry Panel ──────────────────────── -->
+                    <div class="tab-pane fade" id="panel-industry" role="tabpanel">
+                        <!-- Toolbar -->
+                        <div class="row g-2 mb-2">
+                            <div class="col">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="industryViewMode" id="industryViewAll" value="all" checked>
+                                    <label class="btn btn-outline-primary" for="industryViewAll">All Jobs</label>
+                                    <input type="radio" class="btn-check" name="industryViewMode" id="industryViewActive" value="active">
+                                    <label class="btn btn-outline-primary" for="industryViewActive">Active</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <button class="btn btn-info btn-sm" onclick="syncIndustryJobs()">
+                                    <i class="bi bi-arrow-repeat"></i> Sync
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Stats Bar -->
+                        <div class="row g-1 mb-2" id="industryStatsBar">
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-1">
+                                    <div class="small text-secondary">Total Jobs</div>
+                                    <div class="h5 mb-0" id="indStatTotal">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-1">
+                                    <div class="small text-secondary">Active</div>
+                                    <div class="h5 mb-0 text-warning" id="indStatActive">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-1">
+                                    <div class="small text-secondary">Delivered</div>
+                                    <div class="h5 mb-0 text-success" id="indStatDelivered">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-1">
+                                    <div class="small text-secondary">Total Cost</div>
+                                    <div class="h6 mb-0 text-info" id="indStatCost">-</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filter Bar -->
+                        <div class="row g-1 mb-2">
+                            <div class="col">
+                                <select class="form-select form-select-sm" id="industryCharFilter" onchange="loadIndustryJobs()">
+                                    <option value="">All Characters</option>
+                                </select>
+                            </div>
+                            <div class="col">
+                                <select class="form-select form-select-sm" id="industryActivityFilter" onchange="loadIndustryJobs()">
+                                    <option value="">All Activities</option>
+                                    <option value="1">Manufacturing</option>
+                                    <option value="3">Invention</option>
+                                    <option value="4">Time Efficiency</option>
+                                    <option value="5">Material Efficiency</option>
+                                    <option value="8">Reactions</option>
+                                    <option value="11">Copying</option>
+                                </select>
+                            </div>
+                            <div class="col">
+                                <select class="form-select form-select-sm" id="industryStatusFilter" onchange="loadIndustryJobs()">
+                                    <option value="">All Statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="paused">Paused</option>
+                                    <option value="ready">Ready</option>
+                                    <option value="delivered">Delivered</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Sync Status -->
+                        <div id="industrySyncStatus" class="d-none mb-2">
+                            <div class="alert alert-info py-1 px-2 mb-0 small" id="industrySyncMessage"></div>
+                        </div>
+
+                        <!-- Jobs Table -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body p-0">
+                                <div class="table-responsive" style="max-height: 65vh; overflow-y: auto;">
+                                    <table class="table table-dark table-striped table-hover mb-0" id="industryTable">
+                                        <thead class="sticky-top">
+                                            <tr>
+                                                <th>Blueprint</th>
+                                                <th>Product</th>
+                                                <th>Activity</th>
+                                                <th class="text-end">Runs</th>
+                                                <th>Status</th>
+                                                <th>Ends</th>
+                                                <th>Installer</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="industryTableBody">
+                                            <tr>
+                                                <td colspan="8" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-inbox"></i> No jobs found. Sync to fetch from ESI.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div class="mt-2 d-flex justify-content-between align-items-center">
+                            <small class="text-secondary" id="industryPageInfo"></small>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary" id="industryPrevPage" onclick="industryChangePage(-1)" disabled>
+                                    <i class="bi bi-chevron-left"></i> Prev
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="industryNextPage" onclick="industryChangePage(1)" disabled>
+                                    Next <i class="bi bi-chevron-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Build Calculator Panel ──────────────── -->
+                    <div class="tab-pane fade" id="panel-build" role="tabpanel">
+                        <!-- Toolbar -->
+                        <div class="row g-2 mb-2">
+                            <div class="col">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="buildViewMode" id="buildViewSearch" value="search" checked>
+                                    <label class="btn btn-outline-primary" for="buildViewSearch">Search Blueprint</label>
+                                    <input type="radio" class="btn-check" name="buildViewMode" id="buildViewBom" value="bom">
+                                    <label class="btn btn-outline-primary" for="buildViewBom">BOM View</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <small class="text-secondary" id="buildStatusText"></small>
+                            </div>
+                        </div>
+
+                        <!-- ── Blueprint Search View ───────────── -->
+                        <div id="buildSearchView">
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-body">
+                                    <div class="row g-1">
+                                        <div class="col-12 col-md-6">
+                                            <input type="text" class="form-control form-control-sm" id="buildSearchInput"
+                                                   placeholder="Search blueprint name... (e.g. 'Raven', 'Ishtar')">
+                                        </div>
+                                        <div class="col-6 col-md-2">
+                                            <button class="btn btn-sm btn-info w-100" onclick="searchBlueprints()">
+                                                <i class="bi bi-search"></i> Search
+                                            </button>
+                                        </div>
+                                        <div class="col-6 col-md-2">
+                                            <input type="number" class="form-control form-control-sm" id="buildSearchLimit"
+                                                   value="20" min="5" max="100" title="Max results">
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <small class="text-secondary" id="buildSearchInfo"></small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Blueprint Results -->
+                            <div id="buildResultsContainer">
+                                <div class="text-center text-secondary py-4">
+                                    <i class="bi bi-hammer"></i> Search for a blueprint to get started.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── BOM View ────────────────────────── -->
+                        <div id="buildBomView" class="d-none">
+                            <!-- BOM Header Info -->
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-body py-2">
+                                    <div class="row g-1 align-items-center">
+                                        <div class="col">
+                                            <h6 class="mb-0" id="bomBlueprintName">-</h6>
+                                            <small class="text-secondary" id="bomProductName">-</small>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-sm btn-outline-secondary" onclick="backToBuildSearch()">
+                                                <i class="bi bi-arrow-left"></i> Back to Search
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ME / Runs Controls -->
+                            <div class="row g-1 mb-2">
+                                <div class="col">
+                                    <label class="form-label small mb-0">ME Level</label>
+                                    <input type="number" class="form-control form-control-sm" id="bomMeLevel"
+                                           value="0" min="0" max="100" onchange="refreshCurrentBom()">
+                                </div>
+                                <div class="col">
+                                    <label class="form-label small mb-0">Runs</label>
+                                    <input type="number" class="form-control form-control-sm" id="bomRuns"
+                                           value="1" min="1" max="100000" onchange="refreshCurrentBom()">
+                                </div>
+                                <div class="col">
+                                    <label class="form-label small mb-0">Activity</label>
+                                    <select class="form-select form-select-sm" id="bomActivity" onchange="refreshCurrentBom()">
+                                        <option value="1">Manufacturing</option>
+                                        <option value="3">Invention</option>
+                                        <option value="8">Reactions</option>
+                                    </select>
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button class="btn btn-sm btn-info" onclick="refreshCurrentBom()">
+                                        <i class="bi bi-arrow-repeat"></i> Refresh
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Summary Bar -->
+                            <div class="row g-1 mb-2" id="bomSummaryBar">
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Materials</div>
+                                        <div class="h5 mb-0" id="bomStatMaterials">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Total Units</div>
+                                        <div class="h5 mb-0" id="bomStatUnits">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Product Qty</div>
+                                        <div class="h5 mb-0 text-info" id="bomStatProductQty">-</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- BOM Table -->
+                            <div class="card bg-dark border-secondary">
+                                <div class="card-body p-0">
+                                    <div class="table-responsive" style="max-height: 55vh; overflow-y: auto;">
+                                        <table class="table table-dark table-striped table-hover mb-0" id="bomTable">
+                                            <thead class="sticky-top">
+                                                <tr>
+                                                    <th>Material</th>
+                                                    <th class="text-end">Base Qty</th>
+                                                    <th class="text-end">Adjusted/Run</th>
+                                                    <th class="text-end">Total (×Runs)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="bomTableBody">
+                                                <tr>
+                                                    <td colspan="4" class="text-center text-secondary py-4">
+                                                        <i class="bi bi-inbox"></i> Select a blueprint to see BOM.
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Invention Calculator Panel (Phase 3C) ── -->
+                    <div class="tab-pane fade" id="panel-invention" role="tabpanel">
+                        <!-- Toolbar -->
+                        <div class="row g-2 mb-2">
+                            <div class="col">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="inventViewMode" id="inventViewSearch" value="search" checked>
+                                    <label class="btn btn-outline-primary" for="inventViewSearch">Search T1 Blueprint</label>
+                                    <input type="radio" class="btn-check" name="inventViewMode" id="inventViewResult" value="result">
+                                    <label class="btn btn-outline-primary" for="inventViewResult">Invention Result</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <small class="text-secondary" id="inventStatusText"></small>
+                            </div>
+                        </div>
+
+                        <!-- ── Search View ───────────────────────── -->
+                        <div id="inventSearchView">
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-body">
+                                    <div class="row g-1">
+                                        <div class="col-12 col-md-6">
+                                            <input type="text" class="form-control form-control-sm" id="inventSearchInput"
+                                                   placeholder="Search T1 blueprint name... (e.g. 'Raven', 'Punisher')">
+                                        </div>
+                                        <div class="col-6 col-md-2">
+                                            <button class="btn btn-sm btn-info w-100" onclick="searchInventBlueprints()">
+                                                <i class="bi bi-search"></i> Search
+                                            </button>
+                                        </div>
+                                        <div class="col-6 col-md-2">
+                                            <input type="number" class="form-control form-control-sm" id="inventSearchLimit"
+                                                   value="20" min="5" max="100" title="Max results">
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <small class="text-secondary" id="inventSearchInfo"></small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Blueprint Results -->
+                            <div id="inventResultsContainer">
+                                <div class="text-center text-secondary py-4">
+                                    <i class="bi bi-flask"></i> Search for a T1 blueprint to calculate invention costs.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── Invention Result View ────────────── -->
+                        <div id="inventResultView" class="d-none">
+                            <!-- Header -->
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-body py-2">
+                                    <div class="row g-1 align-items-center">
+                                        <div class="col">
+                                            <h6 class="mb-0" id="inventBlueprintName">-</h6>
+                                            <small class="text-secondary" id="inventProductName">-</small>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-sm btn-outline-secondary" onclick="backToInventSearch()">
+                                                <i class="bi bi-arrow-left"></i> Back to Search
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Skills & Parameters -->
+                            <div class="row g-1 mb-2">
+                                <div class="col">
+                                    <label class="form-label small mb-0">Encryption Skill</label>
+                                    <select class="form-select form-select-sm" id="inventSkillEnc" onchange="recalcInvention()">
+                                        <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                                        <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
+                                    </select>
+                                </div>
+                                <div class="col">
+                                    <label class="form-label small mb-0">Datacore Skill 1</label>
+                                    <select class="form-select form-select-sm" id="inventSkillDc1" onchange="recalcInvention()">
+                                        <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                                        <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
+                                    </select>
+                                </div>
+                                <div class="col">
+                                    <label class="form-label small mb-0">Datacore Skill 2</label>
+                                    <select class="form-select form-select-sm" id="inventSkillDc2" onchange="recalcInvention()">
+                                        <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+                                        <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
+                                    </select>
+                                </div>
+                                <div class="col">
+                                    <label class="form-label small mb-0">Decryptor</label>
+                                    <select class="form-select form-select-sm" id="inventDecryptor" onchange="recalcInvention()">
+                                        <option value="">None</option>
+                                    </select>
+                                </div>
+                                <div class="col">
+                                    <label class="form-label small mb-0">Cost Index</label>
+                                    <input type="number" class="form-control form-control-sm" id="inventCostIndex"
+                                           value="0.01" min="0" max="1" step="0.001" onchange="recalcInvention()">
+                                </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <button class="btn btn-sm btn-info" onclick="recalcInvention()">
+                                        <i class="bi bi-arrow-repeat"></i> Recalc
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Results Summary Cards -->
+                            <div class="row g-1 mb-2" id="inventSummaryBar">
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Probability</div>
+                                        <div class="h5 mb-0 text-success" id="inventStatProb">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">T2 BPC Runs</div>
+                                        <div class="h5 mb-0 text-info" id="inventStatRuns">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">T2 ME</div>
+                                        <div class="h5 mb-0" id="inventStatMe">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">T2 TE</div>
+                                        <div class="h5 mb-0" id="inventStatTe">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Cost / Attempt</div>
+                                        <div class="h6 mb-0 text-warning" id="inventStatCostPer">-</div>
+                                    </div>
+                                </div>
+                                <div class="col">
+                                    <div class="card bg-dark border-secondary text-center py-1">
+                                        <div class="small text-secondary">Exp. Cost / Success</div>
+                                        <div class="h6 mb-0 text-danger" id="inventStatExpCost">-</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Detailed Cost Breakdown -->
+                            <div class="card bg-dark border-secondary mb-2">
+                                <div class="card-header"><i class="bi bi-calculator"></i> Cost Breakdown</div>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-striped table-hover mb-0" id="inventCostTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Item</th>
+                                                    <th class="text-end">Qty</th>
+                                                    <th class="text-end">Unit Price</th>
+                                                    <th class="text-end">Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="inventCostBody">
+                                                <tr><td colspan="4" class="text-center text-secondary py-3">Select a blueprint to calculate.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Profit Estimate -->
+                            <div class="card bg-dark border-secondary">
+                                <div class="card-header"><i class="bi bi-graph-up-arrow"></i> Profit Estimate</div>
+                                <div class="card-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-striped table-hover mb-0" id="inventProfitTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Metric</th>
+                                                    <th class="text-end">Value</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="inventProfitBody">
+                                                <tr><td colspan="2" class="text-center text-secondary py-3">Select a blueprint to calculate.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Blueprints Panel ───────────────────────── -->
+                    <div class="tab-pane fade" id="panel-blueprints" role="tabpanel" aria-labelledby="tab-blueprints">
+                        <!-- View Mode Toggle -->
+                        <div class="row g-2 mb-2">
+                            <div class="col">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <input type="radio" class="btn-check" name="bpViewMode" id="bpViewAll" value="all" checked>
+                                    <label class="btn btn-outline-primary" for="bpViewAll">All Blueprints</label>
+                                    <input type="radio" class="btn-check" name="bpViewMode" id="bpViewBpo" value="bpo">
+                                    <label class="btn btn-outline-primary" for="bpViewBpo">BPOs</label>
+                                    <input type="radio" class="btn-check" name="bpViewMode" id="bpViewBpc" value="bpc">
+                                    <label class="btn btn-outline-primary" for="bpViewBpc">BPCs</label>
+                                </div>
+                                <div class="btn-group btn-group-sm mt-1" role="group">
+                                    <input type="radio" class="btn-check" name="bpCorpView" id="bpViewPersonal" value="personal" checked>
+                                    <label class="btn btn-outline-info" for="bpViewPersonal">Personal</label>
+                                    <input type="radio" class="btn-check" name="bpCorpView" id="bpViewCorp" value="corp">
+                                    <label class="btn btn-outline-info" for="bpViewCorp">Corporation</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <button class="btn btn-info btn-sm" onclick="syncBlueprints()">
+                                    <i class="bi bi-arrow-repeat"></i> Sync Personal
+                                </button>
+                                <button class="btn btn-warning btn-sm" id="btnSyncCorpBlueprints" onclick="syncCorpBlueprints()">
+                                    <i class="bi bi-building"></i> Sync Corp
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Character Filter (only visible in Personal view) -->
+                        <div class="row g-2 mb-2" id="bpCharFilterRow">
+                            <div class="col-6 col-md-3">
+                                <select class="form-select form-select-sm" id="bpCharFilter" onchange="loadBlueprints()">
+                                    <option value="">All Characters</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Blueprint Table -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-diagram-3"></i> <span id="bpTableTitle">Blueprints</span></span>
+                                <small class="text-secondary" id="bpTableInfo"></small>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0" id="bpTable">
+                                        <thead class="sticky-top">
+                                            <tr>
+                                                <th>Blueprint</th>
+                                                <th class="text-end">ME</th>
+                                                <th class="text-end">TE</th>
+                                                <th class="text-end">Runs</th>
+                                                <th>Type</th>
+                                                <th>Location</th>
+                                                <th>Flag</th>
+                                                <th class="bp-owner-col">Owner</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="bpTableBody">
+                                            <tr>
+                                                <td colspan="8" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-inbox"></i> No blueprints synced yet. Click Sync Personal or Sync Corp.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <nav>
+                                    <ul class="pagination pagination-sm justify-content-center mb-0" id="bpPagination">
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Location Aliases Panel ──────────────────── -->
+                    <div class="tab-pane fade" id="panel-location-aliases" role="tabpanel" aria-labelledby="tab-location-aliases">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-tags"></i> Location Aliases</span>
+                                <button class="btn btn-success btn-sm" onclick="showAddAliasModal()">
+                                    <i class="bi bi-plus-lg"></i> Add Alias
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Location ID</th>
+                                                <th>Custom Name</th>
+                                                <th>Color</th>
+                                                <th>Solar System</th>
+                                                <th>Structure Type</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="aliasTableBody">
+                                            <tr>
+                                                <td colspan="6" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-tags"></i> No aliases yet. Add one to name a player structure or location.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Sync All Panel ──────────────────────────── -->
+                    <div class="tab-pane fade" id="panel-sync-all" role="tabpanel" aria-labelledby="tab-sync-all">
+                        <!-- Status Summary -->
+                        <div class="row mb-2 g-2">
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Sync Status</div>
+                                    <div class="h5 mb-0" id="syncAllStatus">Idle</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Last Sync</div>
+                                    <div class="h6 mb-0" id="syncAllLastSync">-</div>
+                                </div>
+                            </div>
+                            <div class="col">
+                                <div class="card bg-dark border-secondary text-center py-2">
+                                    <div class="small text-secondary">Errors</div>
+                                    <div class="h5 mb-0" id="syncAllErrors">0</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sync All Controls -->
+                        <div class="card bg-dark border-secondary mb-2">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-arrow-repeat"></i> Sync All</span>
+                                <button class="btn btn-success btn-sm" id="btnSyncAll">
+                                    <i class="bi bi-arrow-repeat"></i> Sync All
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <p class="small text-secondary mb-2">
+                                    <i class="bi bi-info-circle"></i>
+                                    Triggers a full sync of all data from EVE ESI: assets, blueprints,
+                                    corporation members, industry jobs, and market prices.
+                                </p>
+
+                                <!-- Progress Steps -->
+                                <div id="syncAllProgress">
+                                    <div class="mb-1 small text-secondary" id="syncAllProgressText">Not started.</div>
+                                    <div class="progress mb-2" style="height: 20px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                             id="syncAllProgressBar" style="width: 0%"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Step List -->
+                                <div id="syncAllSteps" class="small">
+                                    <div class="d-flex align-items-center mb-1 sync-step" data-step="Assets">
+                                        <span class="sync-step-icon me-2"><i class="bi bi-circle text-secondary"></i></span>
+                                        <span class="sync-step-name">Assets</span>
+                                        <span class="sync-step-status text-secondary ms-2 small"></span>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-1 sync-step" data-step="Blueprints">
+                                        <span class="sync-step-icon me-2"><i class="bi bi-circle text-secondary"></i></span>
+                                        <span class="sync-step-name">Blueprints</span>
+                                        <span class="sync-step-status text-secondary ms-2 small"></span>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-1 sync-step" data-step="Corp Members">
+                                        <span class="sync-step-icon me-2"><i class="bi bi-circle text-secondary"></i></span>
+                                        <span class="sync-step-name">Corp Members</span>
+                                        <span class="sync-step-status text-secondary ms-2 small"></span>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-1 sync-step" data-step="Industry Jobs">
+                                        <span class="sync-step-icon me-2"><i class="bi bi-circle text-secondary"></i></span>
+                                        <span class="sync-step-name">Industry Jobs</span>
+                                        <span class="sync-step-status text-secondary ms-2 small"></span>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-1 sync-step" data-step="Market Prices">
+                                        <span class="sync-step-icon me-2"><i class="bi bi-circle text-secondary"></i></span>
+                                        <span class="sync-step-name">Market Prices</span>
+                                        <span class="sync-step-status text-secondary ms-2 small"></span>
+                                    </div>
+                                </div>
+
+                                <!-- Error List -->
+                                <div id="syncAllErrors" class="mt-2 d-none">
+                                    <div class="alert alert-danger py-1 px-2 mb-0 small" id="syncAllErrorsText"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Auto-Sync Settings Card -->
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header">
+                                <span><i class="bi bi-clock-history"></i> Auto-Sync Settings</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="autoSyncEnabled">
+                                    <label class="form-check-label" for="autoSyncEnabled">
+                                        Enable automatic periodic sync
+                                    </label>
+                                </div>
+
+                                <div id="autoSyncSettings" class="d-none">
+                                    <div class="row g-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Assets (hours)</label>
+                                            <input type="number" class="form-control form-control-sm" id="autoSyncAssetInterval"
+                                                   value="4" min="1" max="72">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Blueprints (hours)</label>
+                                            <input type="number" class="form-control form-control-sm" id="autoSyncBlueprintInterval"
+                                                   value="6" min="1" max="72">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Members (hours)</label>
+                                            <input type="number" class="form-control form-control-sm" id="autoSyncMemberInterval"
+                                                   value="6" min="1" max="72">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Industry Jobs (hours)</label>
+                                            <input type="number" class="form-control form-control-sm" id="autoSyncIndustryInterval"
+                                                   value="4" min="1" max="72">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label small">Market Prices (hours)</label>
+                                            <input type="number" class="form-control form-control-sm" id="autoSyncPriceInterval"
+                                                   value="4" min="1" max="72">
+                                        </div>
+                                        <div class="col-12 mt-2">
+                                            <button class="btn btn-primary btn-sm" onclick="saveAutoSyncSettings()">
+                                                <i class="bi bi-save"></i> Save Settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Corp Warehouses Panel ─────────────────────-- >
+                    <div class="tab-pane fade" id="panel-corp-warehouses" role="tabpanel" aria-labelledby="tab-corp-warehouses">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-warehouse"></i> Corp Warehouses</span>
+                                <button class="btn btn-success btn-sm" onclick="showAddWarehouseModal()">
+                                    <i class="bi bi-plus-lg"></i> Add Warehouse
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-striped table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Corporation</th>
+                                                <th>Location</th>
+                                                <th>Division</th>
+                                                <th class="text-center">Mineral WH</th>
+                                                <th class="text-center">Active</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="warehouseTableBody">
+                                            <tr>
+                                                <td colspan="7" class="text-center text-secondary py-4">
+                                                    <i class="bi bi-warehouse"></i> No warehouses configured.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Warehouse Stock Summary -->
+                        <div class="card bg-dark border-secondary mt-2">
+                            <div class="card-header">
+                                <span><i class="bi bi-box-seam"></i> Warehouse Stock</span>
+                                <button class="btn btn-sm btn-outline-info float-end" onclick="loadWarehouseStock()">
+                                    <i class="bi bi-arrow-repeat"></i> Refresh
+                                </button>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-dark table-sm table-hover mb-0" id="warehouseStockTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Warehouse</th>
+                                                <th>Item</th>
+                                                <th class="text-end">Quantity</th>
+                                                <th>Category</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="warehouseStockBody">
+                                            <tr>
+                                                <td colspan="4" class="text-center text-secondary py-3">
+                                                    Select a corporation and refresh to see stock levels.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Market Orders Panel -->
+    <div class="tab-pane fade" id="panel-market" role="tabpanel" aria-labelledby="tab-market">
+        <div class="card bg-dark border-secondary">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-graph-up"></i> Market Orders</span>
+                <div>
+                    <small class="text-secondary me-2" id="marketLastSync"></small>
+                    <button class="btn btn-sm btn-outline-info" onclick="syncMarketOrders()">
+                        <i class="bi bi-arrow-repeat"></i> Sync Orders
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Search View (default) -->
+                <div id="marketSearchView">
+                    <div class="row g-2 mb-3">
+                        <div class="col">
+                            <input type="text" class="form-control" id="marketSearchInput"
+                                   placeholder="Search item name... (e.g. Tritanium, Raven)">
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-primary" onclick="searchMarketOrders()">
+                                <i class="bi bi-search"></i> Search
+                            </button>
+                        </div>
+                    </div>
+                    <div id="marketResults" class="row g-2">
+                        <div class="text-secondary text-center py-4">
+                            <i class="bi bi-search"></i> Search for an item to see market orders.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Order Book View -->
+                <div id="marketDetailView" class="d-none">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0" id="marketDetailTitle">Order Book</h6>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="backToMarketSearch()">
+                            <i class="bi bi-arrow-left"></i> Back to Search
+                        </button>
+                    </div>
+
+                    <!-- Summary Cards -->
+                    <div class="row g-1 mb-3" id="marketDetailSummary">
+                        <div class="col">
+                            <div class="card bg-dark border-secondary text-center py-1">
+                                <div class="small text-secondary">Best Sell</div>
+                                <div class="h6 mb-0 text-success" id="marketBestSell">-</div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="card bg-dark border-secondary text-center py-1">
+                                <div class="small text-secondary">Best Buy</div>
+                                <div class="h6 mb-0 text-danger" id="marketBestBuy">-</div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="card bg-dark border-secondary text-center py-1">
+                                <div class="small text-secondary">Spread</div>
+                                <div class="h6 mb-0" id="marketSpread">-</div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="card bg-dark border-secondary text-center py-1">
+                                <div class="small text-secondary">Sell Orders</div>
+                                <div class="h6 mb-0" id="marketSellCount">-</div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="card bg-dark border-secondary text-center py-1">
+                                <div class="small text-secondary">Buy Orders</div>
+                                <div class="h6 mb-0" id="marketBuyCount">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sell Orders Table -->
+                    <div class="card bg-dark border-secondary mb-2">
+                        <div class="card-header py-1"><small class="text-success"><i class="bi bi-arrow-up-circle"></i> Sell Orders</small></div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-dark table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Price</th>
+                                            <th class="text-end">Remaining</th>
+                                            <th class="text-end">Total</th>
+                                            <th>Range</th>
+                                            <th>Issued</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="marketSellBody">
+                                        <tr><td colspan="5" class="text-center text-secondary py-3">No sell orders loaded.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Buy Orders Table -->
+                    <div class="card bg-dark border-secondary">
+                        <div class="card-header py-1"><small class="text-danger"><i class="bi bi-arrow-down-circle"></i> Buy Orders</small></div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-dark table-sm table-hover mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>Price</th>
+                                            <th class="text-end">Remaining</th>
+                                            <th class="text-end">Total</th>
+                                            <th>Range</th>
+                                            <th>Issued</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="marketBuyBody">
+                                        <tr><td colspan="5" class="text-center text-secondary py-3">No buy orders loaded.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SDE Update Modal -->
+    <div class="modal fade" id="sdeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">SDE Database Update</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>This will download the latest <strong>Static Data Export</strong> from CCP and
+                    re-import all item definitions.</p>
+                    <p class="small text-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        This downloads ~200MB and takes a few minutes.
+                    </p>
+                    <div id="sdeProgress" class="d-none">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 id="sdeProgressBar" style="width: 0%"></div>
+                        </div>
+                        <small class="text-secondary" id="sdeStatusText">Processing...</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-warning" id="btnConfirmSde">
+                        <i class="bi bi-cloud-download"></i> Start Update
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Setup Modal -->
+    <div class="modal fade" id="bootstrapModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-rocket-takeoff"></i> Initial Setup</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>This will download the complete <strong>EVE Static Data Export</strong> from
+                    Fuzzwork (~200MB) and import everything into the local database.</p>
+                    <p class="small text-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        This takes <strong>10-20 minutes</strong> depending on your connection.
+                        Do not close the page during the process.
+                    </p>
+                    <p class="small text-secondary">The import includes:</p>
+                    <ul class="small text-secondary">
+                        <li>All item types (ships, modules, materials, etc.)</li>
+                        <li>Blueprint definitions + manufacturing materials</li>
+                        <li>Solar systems, regions, and stations</li>
+                    </ul>
+                    <div id="bootstrapProgress" class="d-none">
+                        <div class="progress mb-2">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                                 id="bootstrapProgressBar" style="width: 0%"></div>
+                        </div>
+                        <small class="text-secondary" id="bootstrapStatusText">Starting...</small>
+                    </div>
+                    <div id="bootstrapResult" class="d-none">
+                        <div class="alert alert-success py-2 mb-0" id="bootstrapResultText"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal" id="btnBootstrapClose">Close</button>
+                    <button class="btn btn-success" id="btnConfirmBootstrap">
+                        <i class="bi bi-rocket-takeoff"></i> Start Setup
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Location Alias Modal -->
+    <div class="modal fade" id="aliasModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="aliasModalTitle">Add Location Alias</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Location ID</label>
+                        <input type="number" class="form-control" id="aliasLocationId"
+                               placeholder="EVE location_id (e.g. player structure ID)">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Custom Name</label>
+                        <input type="text" class="form-control" id="aliasCustomName"
+                               placeholder="e.g. Main HQ, Mineral Hangar, Jita 4-4">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Color (optional)</label>
+                        <input type="text" class="form-control" id="aliasColor"
+                               placeholder="e.g. #ff9900, green, danger">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Solar System ID (optional)</label>
+                        <input type="number" class="form-control" id="aliasSolarSystemId"
+                               placeholder="Solar system ID for structures">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Structure Type ID (optional)</label>
+                        <input type="number" class="form-control" id="aliasStructureTypeId"
+                               placeholder="e.g. 35834 for Fortizar">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <input type="hidden" id="aliasEditId" value="">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmAlias">
+                        <i class="bi bi-check-lg"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Corp Warehouse Modal -->
+    <div class="modal fade" id="warehouseModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="warehouseModalTitle">Add Corp Warehouse</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-secondary">Define a station hangar division as a named warehouse for stock tracking.</p>
+                    <div class="mb-3">
+                        <label class="form-label">Warehouse Name</label>
+                        <input type="text" class="form-control" id="whName"
+                               placeholder="e.g. Mineralien-Lager, Factory Hangar">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Location ID (station/structure)</label>
+                        <input type="number" class="form-control" id="whLocationId"
+                               placeholder="Station or structure ID">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Division ID (1-7)</label>
+                        <input type="number" class="form-control" id="whDivisionId"
+                               placeholder="Hangar division number" min="1" max="7">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="whIsMineral">
+                        <label class="form-check-label" for="whIsMineral">Mark as Mineral Warehouse</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <input type="hidden" id="whEditId" value="">
+                    <input type="hidden" id="whCorpId" value="">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmWarehouse">
+                        <i class="bi bi-check-lg"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="confirmModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-body text-center py-4">
+                    <i class="bi bi-exclamation-triangle text-warning" style="font-size:2rem"></i>
+                    <p class="mt-2 mb-0" id="confirmModalText">Are you sure?</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-danger" id="btnConfirmDelete">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create List Modal -->
+    <div class="modal fade" id="createListModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">New Restock List</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">List Name</label>
+                        <input type="text" class="form-control" id="newListName" placeholder="e.g. Mineral Stock, Moon Goop, Ammo">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmCreateList">
+                        <i class="bi bi-plus-lg"></i> Create
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Item Modal -->
+    <div class="modal fade" id="addItemModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Item to List</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Item Name or Type ID</label>
+                        <input type="text" class="form-control" id="addItemName" placeholder="Search item name...">
+                        <div class="mt-1" id="addItemSuggestions"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Target Quantity</label>
+                        <input type="number" class="form-control" id="addItemQty" value="1000" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category Group (optional)</label>
+                        <select class="form-select" id="addItemGroup">
+                            <option value="">-- None --</option>
+                            <option value="minerals">Minerals</option>
+                            <option value="moon_goop">Moon Goop</option>
+                            <option value="planet_tech">Planet Tech</option>
+                            <option value="datacores">Datacores</option>
+                            <option value="decryptors">Decryptors</option>
+                            <option value="ammo">Ammunition</option>
+                            <option value="drones">Drones</option>
+                            <option value="ships">Ships</option>
+                            <option value="modules">Modules</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmAddItem">
+                        <i class="bi bi-plus-lg"></i> Add
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Template Modal -->
+    <div class="modal fade" id="templateModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Template to List</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Add a predefined set of items to your restock list.</p>
+                    <div class="mb-3">
+                        <label class="form-label">Template</label>
+                        <select class="form-select" id="templateSelect">
+                            <option value="minerals">Minerals (Tritanium, Pyerite, ...)</option>
+                            <option value="moon_goop">Moon Goop (Tungsten Carbide, ...)</option>
+                            <option value="planet_tech">Planet Tech (Transmitter, Coolant, ...)</option>
+                            <option value="datacores">Datacores (all 16 types)</option>
+                            <option value="decryptors">Decryptors (all 12 types)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Default Target Quantity</label>
+                        <input type="number" class="form-control" id="templateQty" value="10000" min="1">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmTemplate">
+                        <i class="bi bi-plus-lg"></i> Add Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Buy Text Modal -->
+    <div class="modal fade" id="buyTextModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">Buy Order Text</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea class="form-control bg-dark text-light" id="buyTextArea" rows="15" readonly style="font-family: monospace;"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-info" onclick="copyBuyText()">
+                        <i class="bi bi-clipboard"></i> Copy to Clipboard
+                    </button>
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Character Restock Modals (Phase 4C) ──────────────── -->
+
+    <!-- Create Character Restock List Modal -->
+    <div class="modal fade" id="charCreateListModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">New Character Restock List</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">List Name</label>
+                        <input type="text" class="form-control" id="charNewListName" placeholder="e.g. My Minerals, Ammo, PI">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmCharCreateList">
+                        <i class="bi bi-plus-lg"></i> Create
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Item to Character Restock Modal -->
+    <div class="modal fade" id="charAddItemModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Item</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Item Name or Type ID</label>
+                        <input type="text" class="form-control" id="charAddItemName" placeholder="Search item name...">
+                        <div class="mt-1" id="charAddItemSuggestions"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Target Quantity</label>
+                        <input type="number" class="form-control" id="charAddItemQty" value="1000" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category Group (optional)</label>
+                        <select class="form-select" id="charAddItemGroup">
+                            <option value="">-- None --</option>
+                            <option value="minerals">Minerals</option>
+                            <option value="moon_goop">Moon Goop</option>
+                            <option value="planet_tech">Planet Tech</option>
+                            <option value="datacores">Datacores</option>
+                            <option value="decryptors">Decryptors</option>
+                            <option value="ammo">Ammunition</option>
+                            <option value="drones">Drones</option>
+                            <option value="ships">Ships</option>
+                            <option value="modules">Modules</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmCharAddItem">
+                        <i class="bi bi-plus-lg"></i> Add
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Character Template Modal -->
+    <div class="modal fade" id="charTemplateModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Template</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Add a predefined set of items to your personal restock list.</p>
+                    <div class="mb-3">
+                        <label class="form-label">Template</label>
+                        <select class="form-select" id="charTemplateSelect">
+                            <option value="minerals">Minerals (Tritanium, Pyerite, ...)</option>
+                            <option value="moon_goop">Moon Goop (Tungsten Carbide, ...)</option>
+                            <option value="planet_tech">Planet Tech (Transmitter, Coolant, ...)</option>
+                            <option value="datacores">Datacores (all 16 types)</option>
+                            <option value="decryptors">Decryptors (all 12 types)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Default Target Quantity</label>
+                        <input type="number" class="form-control" id="charTemplateQty" value="10000" min="1">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="btnConfirmCharTemplate">
+                        <i class="bi bi-plus-lg"></i> Add Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Character Buy Text Modal -->
+    <div class="modal fade" id="charBuyTextModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header">
+                    <h5 class="modal-title">Buy Order Text</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea class="form-control bg-dark text-light" id="charBuyTextArea" rows="15" readonly style="font-family: monospace;"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-info" onclick="charCopyBuyText()">
+                        <i class="bi bi-clipboard"></i> Copy to Clipboard
+                    </button>
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999;">
+        <div id="liveToast" class="toast bg-dark border-secondary" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-dark border-secondary">
+                <strong class="me-auto" id="toastTitle">Notification</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastMessage"></div>
+        </div>
+    </div>
+
+    <!-- Merge Account Confirmation Modal -->
+    <div class="modal fade" id="mergeAccountModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark border-secondary">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title"><i class="bi bi-people-fill text-warning"></i> Merge accounts?</h5>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        The character <strong id="mergeCharName">this character</strong> already belongs to
+                        a different account.
+                    </p>
+                    <p class="small text-secondary mb-0">
+                        Because you just logged in as this character, you can merge that account into your
+                        current one. All of its characters will be moved to your account.
+                        This cannot be undone.
+                    </p>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-outline-secondary" onclick="cancelMergeAccounts()">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-warning" onclick="confirmMergeAccounts()">
+                        <i class="bi bi-people-fill"></i> Merge accounts
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ static_url('js/app.js') }}"></script>
+    <script src="{{ static_url('js/selling.js') }}"></script>
+    <script src="{{ static_url('js/item-search.js') }}"></script>
+    <script src="{{ static_url('js/type-browser.js') }}"></script>
+</body>
+</html>

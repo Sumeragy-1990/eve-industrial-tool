@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: eve-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eve
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-eve_password}
+      POSTGRES_DB: eve_industrial
+    volumes:
+      - eve-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eve -d eve_industrial"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend (FastAPI) ────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eve-backend
+    restart: unless-stopped
+    ports:
+      - "${EVE_PORT:-8082}:8080"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://eve:${DB_PASSWORD:-eve_password}@db:5432/eve_industrial"
+      EVE_CLIENT_ID: "${EVE_CLIENT_ID}"
+      EVE_SECRET_KEY: "${EVE_SECRET_KEY}"
+      EVE_CALLBACK_URL: "${EVE_CALLBACK_URL:-http://192.168.178.24:8082/auth/callback}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-change-me-to-a-random-secret}"
+      EVE_USERAGENT: "${EVE_USERAGENT:-EVEIndustrialTool/1.0}"
+      DEBUG: "${DEBUG:-false}"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Mount SDE cache directory for faster re-imports
+      - eve-sde-cache:/app/sde_cache
+
+volumes:
+  eve-db-data:
+  eve-sde-cache:

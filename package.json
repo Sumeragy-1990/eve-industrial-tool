@@ -1,0 +1,24 @@
+{
+  "name": "eve-industrial-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dev tooling for the EVE Industrial Tool (linting + e2e tests)",
+  "type": "module",
+  "scripts": {
+    "lint:js": "eslint \"backend/app/templates/static/js/**/*.js\"",
+    "lint:css": "stylelint \"backend/app/templates/static/css/**/*.css\"",
+    "lint": "npm run lint:js && npm run lint:css",
+    "auth:cookie": "node tests/save-session.mjs",
+    "test:e2e:auth": "playwright test --project=setup",
+    "test:e2e": "playwright test --project=chromium",
+    "test:e2e:headed": "playwright test --project=chromium --headed",
+    "test:e2e:ui": "playwright test --project=chromium --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
+    "stylelint": "^17.13.0",
+    "stylelint-config-standard": "^40.0.0"
+  }
+}

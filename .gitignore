@@ -1,0 +1,31 @@
+# ── Node / JS tooling ───────────────────────────────────────────
+node_modules/
+
+# ── Playwright artifacts ────────────────────────────────────────
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# ── Captured EVE-SSO session — NEVER commit (contains live cookies) ─
+/.auth/
+
+# ── Python ──────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ── Local data / secrets (adjust as needed) ─────────────────────
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+
+# ── Editor / OS ─────────────────────────────────────────────────
+.DS_Store
+*.swp
+
+# NOTE: package-lock.json is intentionally NOT ignored — commit it for
+# reproducible `npm ci` installs.
