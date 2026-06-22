@@ -2296,11 +2296,13 @@
 
     /** Called when station selector is dismissed (cancel/X/backdrop) — fallback to current config */
     function _onStationSelectorDismiss() {
-        // Guard: if confirmStationSelector is already handling this (via the
-        // "Confirm" button), skip the fallback to prevent a double
-        // _proceedCreateOrder call (the root cause of the "hanging" bug).
-        if (_stationSelectorProcessing) {
-            console.log("[SS] dismiss skipped — confirm in progress");
+        // GUARD: if confirmStationSelector already consumed the pending target
+        // (set it to null) and called _proceedCreateOrder, do nothing.
+        // The _stationSelectorProcessing flag alone is not sufficient because
+        // hidden.bs.modal can fire asynchronously AFTER the flag was already
+        // reset by a previous cycle — this null-check catches it definitively.
+        if (_stationSelectorPendingTarget === null) {
+            console.log("[SS] dismiss skipped — target already consumed");
             return;
         }
         var targetIdx = _stationSelectorPendingTarget;
@@ -2342,15 +2344,9 @@
 
     /** Confirm station selector and proceed to create/append order */
     async function confirmStationSelector() {
-        // Set guard flag BEFORE any cleanup that could fire hidden.bs.modal.
-        // This prevents _onStationSelectorDismiss from racing ahead and
-        // calling _proceedCreateOrder a second time.
-        _stationSelectorProcessing = true;
-        console.log("[CSS-TRACE] confirmStationSelector ENTERED (build v2)");
+        console.log("[CSS-TRACE] confirmStationSelector ENTERED (build v3)");
         var modalEl = document.getElementById("bpStationSelectorModal");
         console.log("[CSS-TRACE] modalEl:", !!modalEl,
-            "| bootstrap:", typeof bootstrap,
-            "| getInstance:", modalEl ? !!bootstrap.Modal.getInstance(modalEl) : "n/a",
             "| _cart.length:", (typeof _cart !== "undefined" ? _cart.length : "undef"),
             "| backdrops:", document.querySelectorAll(".modal-backdrop").length);
 
@@ -2410,10 +2406,17 @@
             return;
         }
 
-        console.log("[CSS-TRACE] proceeding to create order, targetIdx:", targetIdx);
-        await _proceedCreateOrder(targetIdx);
-        // Allow future station selector interactions
-        _stationSelectorProcessing = false;
+        // ── Execute order creation inside try/finally so _stationSelectorProcessing
+        //    is ALWAYS reset, even on exception or empty-cart early return. ──
+        try {
+            _stationSelectorProcessing = true;
+            console.log("[CSS-TRACE] proceeding to create order, targetIdx:", targetIdx);
+            await _proceedCreateOrder(targetIdx);
+        } finally {
+            // MUST reset the guard so future station-selector cycles work
+            // (the empty-cart branch above won't reach this line without finally)
+            _stationSelectorProcessing = false;
+        }
     }
 
     /** Deterministically close the station selector modal and clear its backdrop. */

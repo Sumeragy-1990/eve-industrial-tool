@@ -857,25 +857,27 @@
                     <p class="text-secondary">Select an order or create a new one.<br>
                     <small>Use the Shopper tab to add items to cart, then send to Production Orders.</small></p>
                 </div>
+            </div>
 
-                <!-- Aggregated Materials Table -->
-                <div id="bpOrderAggMaterials" style="display:none;"></div>
+            <!-- Aggregated Materials Table (MUST be outside bpOrderItemsContainer, otherwise
+                 renderOrderDetail() destroys it via innerHTML= assignment) -->
+            <div id="bpOrderAggMaterials" style="display:none;"></div>
 
-                <!-- Price Overrides -->
-                <div id="bpPriceOverrides" class="bp-order-section" style="display:none;">
-                    <div class="bp-order-section-header" onclick="BP.togglePriceOverrides()">
-                        <i class="bi bi-currency-exchange"></i> Price Overrides
-                        <span class="bp-override-count" id="bpOverrideCount">0</span>
-                    </div>
-                    <div class="bp-order-section-body" id="bpOverrideBody" style="display:none;">
-                        <div class="bp-override-list" id="bpOverrideList"></div>
-                        <div class="bp-override-actions mt-2">
-                            <button class="btn btn-sm btn-outline-warning" onclick="BP.clearAllPriceOverrides()">
-                                <i class="bi bi-x-circle"></i> Clear All Overrides
-                            </button>
-                        </div>
+            <!-- Price Overrides (MUST be outside bpOrderItemsContainer for same reason) -->
+            <div id="bpPriceOverrides" class="bp-order-section" style="display:none;">
+                <div class="bp-order-section-header" onclick="BP.togglePriceOverrides()">
+                    <i class="bi bi-currency-exchange"></i> Price Overrides
+                    <span class="bp-override-count" id="bpOverrideCount">0</span>
+                </div>
+                <div class="bp-order-section-body" id="bpOverrideBody" style="display:none;">
+                    <div class="bp-override-list" id="bpOverrideList"></div>
+                    <div class="bp-override-actions mt-2">
+                        <button class="btn btn-sm btn-outline-warning" onclick="BP.clearAllPriceOverrides()">
+                            <i class="bi bi-x-circle"></i> Clear All Overrides
+                        </button>
                     </div>
                 </div>
+            </div>
 
             <!-- Order Summary -->
             <div class="bp-order-summary" id="bpOrderSummary" style="display:none;">
