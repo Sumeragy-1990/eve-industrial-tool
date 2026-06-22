@@ -631,6 +631,7 @@ async def get_blueprint_catalog(
             ON a.type_id = sb.type_id AND a.is_blueprint = true
         WHERE sb.activity_id = 1
           AND si.type_id IS NOT NULL
+          AND si.market_group_id IS NOT NULL
           AND (sbp.product_name ILIKE :search OR :search IS NULL)
         GROUP BY
             si.category_id, si.category_name,

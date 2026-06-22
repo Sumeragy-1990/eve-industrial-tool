@@ -2251,6 +2251,10 @@
     /** Station Selector state — target order index for pending creation */
     let _stationSelectorPendingTarget = null;
 
+    /** Guard flag: prevents _proceedCreateOrder from double-firing
+     *  when confirmStationSelector and hidden.bs.modal race. */
+    let _stationSelectorProcessing = false;
+
     /** Show the station selector modal, pre-filled from current config */
     function showStationSelector(targetOrderIndex) {
         var c = loadConfig();
@@ -2275,9 +2279,13 @@
         if (priceSell) priceSell.checked = (c.price_source !== "jita_buy");
         if (priceBuy) priceBuy.checked = (c.price_source === "jita_buy");
 
-        // Show modal
+        // Show modal — dispose any stale Bootstrap instance first
         var modalEl = document.getElementById("bpStationSelectorModal");
         if (modalEl) {
+            try {
+                var oldModal = bootstrap.Modal.getInstance(modalEl);
+                if (oldModal) oldModal.dispose();
+            } catch (e) { /* ignore */ }
             // Remove any previous cancel listener to avoid duplicates
             modalEl.removeEventListener("hidden.bs.modal", _onStationSelectorDismiss);
             modalEl.addEventListener("hidden.bs.modal", _onStationSelectorDismiss);
@@ -2288,6 +2296,13 @@
 
     /** Called when station selector is dismissed (cancel/X/backdrop) — fallback to current config */
     function _onStationSelectorDismiss() {
+        // Guard: if confirmStationSelector is already handling this (via the
+        // "Confirm" button), skip the fallback to prevent a double
+        // _proceedCreateOrder call (the root cause of the "hanging" bug).
+        if (_stationSelectorProcessing) {
+            console.log("[SS] dismiss skipped — confirm in progress");
+            return;
+        }
         var targetIdx = _stationSelectorPendingTarget;
         _stationSelectorPendingTarget = null;
         // Remove the listener so it only fires once
@@ -2327,6 +2342,10 @@
 
     /** Confirm station selector and proceed to create/append order */
     async function confirmStationSelector() {
+        // Set guard flag BEFORE any cleanup that could fire hidden.bs.modal.
+        // This prevents _onStationSelectorDismiss from racing ahead and
+        // calling _proceedCreateOrder a second time.
+        _stationSelectorProcessing = true;
         console.log("[CSS-TRACE] confirmStationSelector ENTERED (build v2)");
         var modalEl = document.getElementById("bpStationSelectorModal");
         console.log("[CSS-TRACE] modalEl:", !!modalEl,
@@ -2393,6 +2412,8 @@
 
         console.log("[CSS-TRACE] proceeding to create order, targetIdx:", targetIdx);
         await _proceedCreateOrder(targetIdx);
+        // Allow future station selector interactions
+        _stationSelectorProcessing = false;
     }
 
     /** Deterministically close the station selector modal and clear its backdrop. */

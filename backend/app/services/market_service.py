@@ -45,29 +45,26 @@ REGION_NAMES = {
 
 
 async def refresh_all_prices(db: AsyncSession) -> dict:
-    """Fetch prices from ESI markets endpoint and update cache."""
+    """Fetch prices from ESI markets endpoint and update cache.
+
+    Fetches ALL pages (not just page 1) for each key region, ensuring
+    that items like Jita prices are fully populated. Previously only
+    page=1 was fetched, which missed large portions of the market.
+    """
     client = ESIClient(db)
     stats = {"fetched": 0, "updated": 0, "errors": 0}
 
     try:
         for region_id in KEY_REGIONS:
             try:
-                # Fetch sell orders (is_buy_order=false, order_type=sell)
-                sell_orders = await client._http.get(
-                    f"https://esi.evetech.net/latest/markets/{region_id}/orders/"
-                    f"?order_type=sell&page=1"
-                )
-                if sell_orders.is_error:
-                    logger.warning(f"Failed to fetch sell orders for region {region_id}")
-                    stats["errors"] += 1
-                    continue
-
-                orders = sell_orders.json()
-                stats["fetched"] += len(orders)
+                # Fetch ALL pages of sell orders using the same pagination
+                # logic as sync_market_orders.
+                all_orders = await _fetch_all_pages(client, region_id, "sell")
+                stats["fetched"] += len(all_orders)
 
                 # Group by type_id, find lowest sell price
                 min_sell = {}
-                for order in orders:
+                for order in all_orders:
                     tid = order.get("type_id")
                     price = order.get("price", 0)
                     if tid not in min_sell or price < min_sell[tid]:
@@ -78,7 +75,7 @@ async def refresh_all_prices(db: AsyncSession) -> dict:
                     await _upsert_price(db, type_id, sell_price_min=price)
                     stats["updated"] += 1
 
-                logger.info(f"Region {region_id}: {len(min_sell)} prices cached")
+                logger.info(f"Region {region_id}: {len(min_sell)} prices cached from {len(all_orders)} orders")
 
             except Exception as e:
                 logger.warning(f"Error fetching region {region_id}: {e}")
