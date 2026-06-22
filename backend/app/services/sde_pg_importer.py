@@ -194,22 +194,22 @@ async def import_sde_pg(
         group_names: dict[int, str] = {}
         group_categories: dict[int, int] = {}
         for row in groups_raw:
-            gid = _parse_int(row[0])
+            gid = _parse_int(row[0])  # groupID
             if gid:
-                group_names[gid] = row[4] if len(row) > 4 else ""
-                group_categories[gid] = _parse_int(row[2]) if len(row) > 2 else None
+                group_names[gid] = row[2] if len(row) > 2 else ""  # groupName
+                group_categories[gid] = _parse_int(row[1]) if len(row) > 1 else None  # categoryID
 
         category_names: dict[int, str] = {}
         for row in categories_raw:
-            cid = _parse_int(row[0])
+            cid = _parse_int(row[0])  # categoryID
             if cid:
-                category_names[cid] = row[4] if len(row) > 4 else ""
+                category_names[cid] = row[1] if len(row) > 1 else ""  # categoryName
 
         meta_group_names: dict[int, str] = {}
         for row in meta_groups_raw:
-            mgid = _parse_int(row[0])
+            mgid = _parse_int(row[0])  # metaGroupID
             if mgid:
-                meta_group_names[mgid] = row[4] if len(row) > 4 else ""
+                meta_group_names[mgid] = row[1] if len(row) > 1 else ""  # metaGroupName
 
         # ── Step 2: Download and import invTypes ────────────────
         if progress_callback:
@@ -229,40 +229,43 @@ async def import_sde_pg(
                     stats["types_skipped"] += 1
                     continue
 
-                name = row[4] if len(row) > 4 else ""
+                # Current Fuzzwork invTypes.csv columns:
+                # 0:typeID 1:groupID 2:typeName 3:description 4:mass
+                # 5:volume 6:capacity 7:portionSize 8:raceID 9:basePrice
+                # 10:published 11:marketGroupID 12:iconID 13:soundID 14:graphicID
+                name = row[2] if len(row) > 2 else ""
                 if not name:
                     stats["types_skipped"] += 1
                     continue
 
-                group_id = _parse_int(row[2]) if len(row) > 2 else None
-                description = row[6] if len(row) > 6 else ""
+                group_id = _parse_int(row[1]) if len(row) > 1 else None
+                description = row[3] if len(row) > 3 else ""
 
-                # Determine category from group lookup
+                # Determine category from group lookup (category_id not in invTypes anymore)
                 category_id = None
                 if group_id:
                     category_id = group_categories.get(group_id)
 
-                if not category_id and len(row) > 3:
-                    category_id = _parse_int(row[3])
-
                 group_name = group_names.get(group_id, "")
                 category_name = category_names.get(category_id, "")
-                meta_group_id = _parse_int(row[13]) if len(row) > 13 else None
-                meta_group_name = meta_group_names.get(meta_group_id, "")
+                # NOTE: metaGroupID is NOT in current invTypes.csv (row[13] is soundID).
+                # Could be derived from invMetaTypes table if needed later.
+                meta_group_id = None
+                meta_group_name = ""
 
-                # Race / faction (from invTypes.raceID, column index 8)
+                # Race / faction
                 race_id = _parse_int(row[8]) if len(row) > 8 else None
                 race_name = RACE_NAMES.get(race_id) if race_id else None
 
-                mass = _parse_float(row[8]) if len(row) > 8 else None
-                volume = _parse_float(row[9]) if len(row) > 9 else None
-                capacity = _parse_float(row[10]) if len(row) > 10 else None
-                radius = _parse_float(row[15]) if len(row) > 15 else None
+                mass = _parse_float(row[4]) if len(row) > 4 else None
+                volume = _parse_float(row[5]) if len(row) > 5 else None
+                capacity = _parse_float(row[6]) if len(row) > 6 else None
+                radius = None  # Not in current Fuzzwork CSV
 
-                tech_level = _parse_int(row[16]) if len(row) > 16 else 1
-                market_group_id = _parse_int(row[12]) if len(row) > 12 else None
-                icon_id = _parse_int(row[17]) if len(row) > 17 else None
-                graphic_id = _parse_int(row[18]) if len(row) > 18 else None
+                tech_level = 1  # Not in current Fuzzwork CSV; derived from metaGroup later
+                market_group_id = _parse_int(row[11]) if len(row) > 11 else None
+                icon_id = _parse_int(row[12]) if len(row) > 12 else None
+                graphic_id = _parse_int(row[14]) if len(row) > 14 else None
 
                 # Determine item category flags
                 is_bp = category_id == CATEGORY_BLUEPRINT
@@ -451,7 +454,7 @@ async def import_sde_pg(
         for row in regions_raw:
             rid = _parse_int(row[0])
             if rid:
-                name = row[2] if len(row) > 2 else ""
+                name = row[1] if len(row) > 1 else ""  # regionName
                 region_names[rid] = name
                 region = SDERegion(region_id=rid, region_name=name)
                 await db_session.merge(region)
@@ -460,19 +463,19 @@ async def import_sde_pg(
         const_names: dict[int, str] = {}
         const_regions: dict[int, int] = {}
         for row in const_raw:
-            cid = _parse_int(row[0])
+            cid = _parse_int(row[1])  # constellationID
             if cid:
-                const_names[cid] = row[2] if len(row) > 2 else ""
-                const_regions[cid] = _parse_int(row[1]) if len(row) > 1 else None
+                const_names[cid] = row[2] if len(row) > 2 else ""  # constellationName
+                const_regions[cid] = _parse_int(row[0])  # regionID
 
         for row in systems_raw:
             try:
-                sid = _parse_int(row[0])
+                sid = _parse_int(row[2])  # solarSystemID
                 if not sid:
                     continue
-                name = row[2] if len(row) > 2 else ""
-                const_id = _parse_int(row[1]) if len(row) > 1 else None
-                sec = _parse_float(row[25]) if len(row) > 25 else None  # security
+                name = row[3] if len(row) > 3 else ""  # solarSystemName
+                const_id = _parse_int(row[1]) if len(row) > 1 else None  # constellationID
+                sec = _parse_float(row[21]) if len(row) > 21 else None  # security
 
                 const_name = const_names.get(const_id, "")
                 reg_id = const_regions.get(const_id)
@@ -503,12 +506,12 @@ async def import_sde_pg(
 
         for row in stations_raw:
             try:
-                station_id = _parse_int(row[0])
+                station_id = _parse_int(row[0])  # stationID
                 if not station_id:
                     continue
-                name = row[4] if len(row) > 4 else ""
-                system_id = _parse_int(row[3]) if len(row) > 3 else None
-                station_type_id = _parse_int(row[5]) if len(row) > 5 else None
+                name = row[11] if len(row) > 11 else ""  # stationName
+                system_id = _parse_int(row[8]) if len(row) > 8 else None  # solarSystemID
+                station_type_id = _parse_int(row[6]) if len(row) > 6 else None  # stationTypeID
 
                 # Resolve system/region names
                 system_name = ""
