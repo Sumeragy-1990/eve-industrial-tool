@@ -112,6 +112,35 @@ async def get_industry_stations(
     }
 
 
+@router.get("/systems-search")
+async def search_solar_systems(
+    prefix: str = Query(..., min_length=1, max_length=50, description="Prefix to search solar system names"),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_session),
+):
+    """Fast SDE-local search for solar systems by name prefix. Returns system_id, system_name, region_name, security_status."""
+    from app.models.sde_solar_system import SDESolarSystem
+
+    stmt = (
+        select(SDESolarSystem)
+        .where(SDESolarSystem.system_name.ilike(prefix + "%"))
+        .order_by(SDESolarSystem.system_name)
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    systems = result.scalars().all()
+
+    return [
+        {
+            "system_id": s.system_id,
+            "system_name": s.system_name,
+            "region_name": s.region_name,
+            "security_status": s.security_status,
+        }
+        for s in systems
+    ]
+
+
 @router.get("/system-cost-index")
 async def get_system_cost_index(
     system_name: str = Query(..., description="Solar system name (e.g. Irjunen)"),

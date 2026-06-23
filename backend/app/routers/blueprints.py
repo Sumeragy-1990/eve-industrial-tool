@@ -631,7 +631,14 @@ async def get_blueprint_catalog(
             ON a.type_id = sb.type_id AND a.is_blueprint = true
         WHERE sb.activity_id = 1
           AND si.type_id IS NOT NULL
-          AND si.market_group_id IS NOT NULL
+          -- Check market_group_id on the blueprint item itself, not the product,
+          -- because some products (e.g. 1MN Afterburner) have no market_group
+          -- but their blueprint does.
+          AND EXISTS (
+              SELECT 1 FROM sde_items si2
+              WHERE si2.type_id = sb.type_id
+                AND si2.market_group_id IS NOT NULL
+          )
           AND (sbp.product_name ILIKE :search OR :search IS NULL)
         GROUP BY
             si.category_id, si.category_name,
@@ -827,6 +834,8 @@ async def get_blueprint_detail(
         SELECT
             bm.material_type_id,
             bm.material_name,
+            si.category_id,
+            si.category_name,
             bm.quantity AS base_quantity,
             bm.is_optional,
             si.volume AS material_volume
@@ -846,6 +855,8 @@ async def get_blueprint_detail(
         materials.append({
             "material_type_id": row.material_type_id,
             "material_name": row.material_name or f"Unknown ({row.material_type_id})",
+            "category_id": row.category_id,
+            "category_name": row.category_name,
             "base_quantity": base_qty,
             "adjusted_quantity": adjusted,
             "is_optional": bool(row.is_optional),
@@ -1213,6 +1224,8 @@ async def calculate_build_cost(
             SELECT
                 sbm.material_type_id,
                 si.name AS material_name,
+                si.category_id,
+                si.category_name,
                 sbm.quantity AS base_quantity,
                 sbm.is_optional,
                 sbp.product_type_id,
@@ -1235,6 +1248,8 @@ async def calculate_build_cost(
                 SELECT
                     sbm.material_type_id,
                     si.name AS material_name,
+                    si.category_id,
+                    si.category_name,
                     sbm.quantity AS base_quantity,
                     sbm.is_optional,
                     NULL AS product_type_id,
@@ -1251,6 +1266,7 @@ async def calculate_build_cost(
             mats = result.all()
 
         materials = []
+        seen_materials = {}  # material_type_id -> index in materials[]
         product_info = {
             "product_type_id": None,
             "product_name": f"Blueprint {item.blueprint_type_id}",
@@ -1259,14 +1275,16 @@ async def calculate_build_cost(
         }
 
         for m in mats:
+            # Extract product info from first row only
             if product_info["product_type_id"] is None and getattr(m, "product_type_id", None):
                 product_info["product_type_id"] = m.product_type_id
                 product_info["product_name"] = getattr(m, "product_name", None) or f"Product {m.product_type_id}"
                 product_info["product_quantity_per_run"] = getattr(m, "product_quantity", 1) or 1
                 product_info["manufacturing_time"] = getattr(m, "manufacturing_time", None)
 
-            if m.material_type_id:
-                all_material_ids.add(m.material_type_id)
+            if not m.material_type_id:
+                continue
+            all_material_ids.add(m.material_type_id)
 
             # Apply ME formula
             base_qty = m.base_quantity or 0
@@ -1274,16 +1292,27 @@ async def calculate_build_cost(
             if item.me > 0:
                 reduction = 0.1 * item.me / (1 + item.me)
                 adjusted = max(1, math.ceil(base_qty * (1 - reduction)))
-            total_qty = adjusted * item.runs
 
-            materials.append({
-                "material_type_id": m.material_type_id,
-                "material_name": getattr(m, "material_name", None) or f"Unknown ({m.material_type_id})",
-                "base_quantity": base_qty,
-                "adjusted_quantity": adjusted,
-                "total_quantity": total_qty,
-                "is_optional": getattr(m, "is_optional", False),
-            })
+            # Deduplicate by material_type_id (SDE product JOIN can cause row multiplication)
+            if m.material_type_id in seen_materials:
+                # All duplicate rows carry the same base_qty from the cross-product;
+                # just keep the first occurrence's values.
+                if getattr(m, "is_optional", False):
+                    idx = seen_materials[m.material_type_id]
+                    materials[idx]["is_optional"] = True
+                continue
+            else:
+                seen_materials[m.material_type_id] = len(materials)
+                materials.append({
+                    "material_type_id": m.material_type_id,
+                    "material_name": getattr(m, "material_name", None) or f"Unknown ({m.material_type_id})",
+                    "category_id": getattr(m, "category_id", None),
+                    "category_name": getattr(m, "category_name", None),
+                    "base_quantity": base_qty,
+                    "adjusted_quantity": adjusted,
+                    "total_quantity": adjusted * item.runs,
+                    "is_optional": getattr(m, "is_optional", False),
+                })
 
         item_plans.append({
             "blueprint_type_id": item.blueprint_type_id,
@@ -1298,7 +1327,7 @@ async def calculate_build_cost(
     price_map = {}
     if all_material_ids:
         price_sql = text("""
-            SELECT type_id, sell_price_min, average_price, type_name
+            SELECT type_id, sell_price_min, buy_price_max, average_price, type_name
             FROM cached_prices
             WHERE type_id = ANY(:ids)
         """)
@@ -1309,6 +1338,7 @@ async def calculate_build_cost(
         for row in price_result:
             price_map[row.type_id] = {
                 "sell_price_min": row.sell_price_min,
+                "buy_price_max": row.buy_price_max,
                 "average_price": row.average_price,
                 "type_name": row.type_name,
             }
@@ -1338,7 +1368,7 @@ async def calculate_build_cost(
     all_product_ids = [p["product"]["product_type_id"] for p in item_plans if p["product"]["product_type_id"]]
     if all_product_ids:
         prod_price_sql = text("""
-            SELECT type_id, sell_price_min, average_price, type_name
+            SELECT type_id, sell_price_min, buy_price_max, average_price, type_name
             FROM cached_prices
             WHERE type_id = ANY(:ids)
         """)
@@ -1349,6 +1379,7 @@ async def calculate_build_cost(
         for row in prod_price_result:
             product_price_map[row.type_id] = {
                 "sell_price_min": row.sell_price_min,
+                "buy_price_max": row.buy_price_max,
                 "average_price": row.average_price,
                 "type_name": row.type_name,
             }
@@ -1426,7 +1457,11 @@ async def calculate_build_cost(
             material_costs.append({
                 "material_type_id": tid,
                 "material_name": mat["material_name"],
+                "category_id": mat.get("category_id"),
+                "category_name": mat.get("category_name"),
                 "total_quantity": mat["total_quantity"],
+                "sell_price_per_unit": round(price_info.get("sell_price_min"), 2) if price_info.get("sell_price_min") else None,
+                "buy_price_per_unit": round(price_info.get("buy_price_max"), 2) if price_info.get("buy_price_max") else None,
                 "unit_price": round(unit_price, 2) if unit_price else None,
                 "total_cost": round(total_cost, 2),
                 "price_source": price_source,
@@ -1504,6 +1539,8 @@ async def calculate_build_cost(
             "job_cost": round(job_cost, 2),
             "total_cost": round(item_total, 2),
             "cost_per_unit": round(item_total / max(plan["runs"], 1), 2),
+            "product_sell_price": round(prod_price.get("sell_price_min"), 2) if prod_price.get("sell_price_min") else None,
+            "product_buy_price": round(prod_price.get("buy_price_max"), 2) if prod_price.get("buy_price_max") else None,
             "market_price_per_unit": round(market_unit_price, 2) if market_unit_price else None,
             "market_price_source": market_price_source,
         })
@@ -1603,6 +1640,8 @@ async def get_build_steps(
             SELECT
                 sbm.material_type_id,
                 si.name AS material_name,
+                si.category_id,
+                si.category_name,
                 sbm.quantity AS base_quantity,
                 sbm.is_optional,
                 sbp.product_type_id,
@@ -1627,6 +1666,8 @@ async def get_build_steps(
                 SELECT
                     sbm.material_type_id,
                     si.name AS material_name,
+                    si.category_id,
+                    si.category_name,
                     sbm.quantity AS base_quantity,
                     sbm.is_optional,
                     NULL::int AS product_type_id,
@@ -1653,6 +1694,7 @@ async def get_build_steps(
         bp_name = None
 
         materials = []
+        seen_materials = {}
         sub_steps = []
 
         for row in rows:
@@ -1673,9 +1715,19 @@ async def get_build_steps(
                 adjusted = max(1, math.ceil(base_qty * (1 - reduction)))
             total_qty = adjusted * needed_runs
 
+            # Deduplicate by material_type_id (SDE product JOIN can multiply rows)
+            if row.material_type_id in seen_materials:
+                if getattr(row, "is_optional", False):
+                    idx = seen_materials[row.material_type_id]
+                    materials[idx]["is_optional"] = True
+                continue
+            seen_materials[row.material_type_id] = len(materials)
+
             mat_entry = {
                 "material_type_id": row.material_type_id,
                 "material_name": getattr(row, "material_name", None) or f"Unknown ({row.material_type_id})",
+                "category_id": getattr(row, "category_id", None),
+                "category_name": getattr(row, "category_name", None),
                 "base_quantity": base_qty,
                 "adjusted_quantity": adjusted,
                 "total_quantity": total_qty,
@@ -1824,6 +1876,7 @@ async def get_build_steps(
 @router.get("/{t1_bp_id}/invention-options")
 async def get_invention_options(
     t1_bp_id: int,
+    user_id: int = Depends(require_auth),
     db: AsyncSession = Depends(get_session),
 ):
     """Return invention data for a T1 blueprint: T2 BPC outcomes, datacore costs,
@@ -1864,22 +1917,40 @@ async def get_invention_options(
             "decryptors": [],
         }
 
-    # ── 2b. Material prices ──────────────────────────────────────────────
+    # ── 2b. Material prices (buy/sell/custom columns) ─────────────────────
     material_type_ids = [m.material_type_id for m in sde_materials]
     price_stmt = select(CachedPrice).where(CachedPrice.type_id.in_(material_type_ids))
     price_result = await db.execute(price_stmt)
-    price_map = {p.type_id: (p.sell_price_min or p.average_price or p.adjusted_price)
-                 for p in price_result.scalars().all()}
+    cached_prices = {p.type_id: p for p in price_result.scalars().all()}
+
+    # Fetch user override prices for this character if available
+    user_price_stmt = select(UserItemPrice).where(
+        UserItemPrice.character_id == user_id,
+        UserItemPrice.type_id.in_(material_type_ids),
+    )
+    user_price_result = await db.execute(user_price_stmt)
+    user_price_map = {p.type_id: p.override_price for p in user_price_result.scalars().all()}
 
     materials = []
     for m in sde_materials:
-        unit_price = price_map.get(m.material_type_id)
+        cp = cached_prices.get(m.material_type_id)
+        sell_price = cp.sell_price_min if cp else None
+        buy_price = cp.buy_price_max if cp else None
+        avg_price = cp.average_price if cp else None
+        adj_price = cp.adjusted_price if cp else None
+        custom_price = user_price_map.get(m.material_type_id)
+
+        # Effective price cascade: custom > sell > buy > average > adjusted
+        effective = custom_price or sell_price or buy_price or avg_price or adj_price
         materials.append({
             "material_type_id": m.material_type_id,
             "name": m.material_name,
             "quantity": m.quantity,
-            "unit_price": round(unit_price, 2) if unit_price else None,
-            "total_cost": round(unit_price * m.quantity, 2) if unit_price else None,
+            "sell_price": round(sell_price, 2) if sell_price else None,
+            "buy_price": round(buy_price, 2) if buy_price else None,
+            "custom_price": round(custom_price, 2) if custom_price else None,
+            "unit_price": round(effective, 2) if effective else None,
+            "total_cost": round(effective * m.quantity, 2) if effective else None,
             "is_optional": m.is_optional or False,
         })
 
@@ -1931,8 +2002,14 @@ async def get_invention_options(
         else:
             t2_price_map = {}
 
-    products = []
+    # Deduplicate products by product_type_id (SDE can have duplicate rows)
+    seen_products = {}
     for p in sde_products:
+        if p.product_type_id not in seen_products:
+            seen_products[p.product_type_id] = p
+
+    products = []
+    for prod_type_id, p in seen_products.items():
         bpc_info = t2_bpcs_info.get(p.product_type_id)
         t2_item_type_id = t2_mfg_map.get(p.product_type_id)
         t2_item = t2_items_info.get(t2_item_type_id) if t2_item_type_id else None
@@ -1956,37 +2033,60 @@ async def get_invention_options(
     skill_result = await db.execute(skill_stmt)
     sde_skills = skill_result.scalars().all()
 
+    # Deduplicate skills by skill_type_id, keeping the highest level
+    seen_skills = {}
+    for s in sde_skills:
+        if s.skill_type_id not in seen_skills or seen_skills[s.skill_type_id].level < s.level:
+            seen_skills[s.skill_type_id] = s
+
     skills = [
         {
             "skill_type_id": s.skill_type_id,
             "name": s.skill_name,
             "level": s.level,
         }
-        for s in sde_skills
+        for s in seen_skills.values()
     ]
 
-    # ── 5. Decryptors (always returned, prices from cache) ────────────────
-    # Import decryptor definitions
+    # ── 5. Decryptors (buy/sell/custom columns) ───────────────────────────
     from app.services.invention_service import DECRYPTORS
 
     decryptor_type_ids = [d["type_id"] for d in DECRYPTORS]
     dec_price_stmt = select(CachedPrice).where(CachedPrice.type_id.in_(decryptor_type_ids))
     dec_price_result = await db.execute(dec_price_stmt)
-    dec_price_map = {p.type_id: (p.sell_price_min or p.average_price or p.adjusted_price)
-                     for p in dec_price_result.scalars().all()}
+    dec_cache_map = {p.type_id: p for p in dec_price_result.scalars().all()}
 
-    decryptors = [
-        {
+    # Fetch user override prices for decryptors
+    user_dec_stmt = select(UserItemPrice).where(
+        UserItemPrice.character_id == user_id,
+        UserItemPrice.type_id.in_(decryptor_type_ids),
+    )
+    user_dec_result = await db.execute(user_dec_stmt)
+    user_dec_map = {p.type_id: p.override_price for p in user_dec_result.scalars().all()}
+
+    decryptors = []
+    for d in DECRYPTORS:
+        cp = dec_cache_map.get(d["type_id"])
+        sell_price = cp.sell_price_min if cp else None
+        buy_price = cp.buy_price_max if cp else None
+        avg_price = cp.average_price if cp else None
+        adj_price = cp.adjusted_price if cp else None
+        custom_price = user_dec_map.get(d["type_id"])
+
+        # Effective price cascade: custom > sell > buy > average > adjusted
+        effective = custom_price or sell_price or buy_price or avg_price or adj_price
+        decryptors.append({
             "type_id": d["type_id"],
             "name": d["name"],
             "prob": d["prob"],
             "runs": d["runs"],
             "me": d["me"],
             "te": d["te"],
-            "price": round(dec_price_map.get(d["type_id"]) or 0, 2) or None,
-        }
-        for d in DECRYPTORS
-    ]
+            "sell_price": round(sell_price, 2) if sell_price else None,
+            "buy_price": round(buy_price, 2) if buy_price else None,
+            "custom_price": round(custom_price, 2) if custom_price else None,
+            "price": round(effective, 2) if effective else None,
+        })
 
     return {
         "blueprint": {

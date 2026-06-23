@@ -2230,12 +2230,38 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     text-overflow: ellipsis;
     color: #ccc;
 }
+.bp-override-badge {
+    width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.bp-override-badge .badge {
+    font-size: 0.55rem;
+    font-weight: 500;
+    padding: 1px 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
 .bp-override-jita {
     width: 80px;
     text-align: right;
     color: var(--t-text-dim);
     font-size: 0.68rem;
     font-family: monospace;
+}
+.bp-override-jita-sell {
+    width: 65px;
+    text-align: right;
+    font-size: 0.68rem;
+    font-family: monospace;
+    color: #28a745;
+}
+.bp-override-jita-buy {
+    width: 65px;
+    text-align: right;
+    font-size: 0.68rem;
+    font-family: monospace;
+    color: var(--t-text-dim);
 }
 .bp-override-input {
     width: 90px;
@@ -2682,4 +2708,54 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
 }
 .bp-bpc-group-entry-links {
     padding: 2px 0;
+}
+
+/* ── Solar System Autocomplete Dropdown ── */
+.bp-autocomplete-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1060;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #1a2330;
+    border: 1px solid #2a3a4a;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    margin-top: 2px;
+}
+.bp-autocomplete-results .bp-autocomplete-item {
+    display: block;
+    width: 100%;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    text-align: left;
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+}
+.bp-autocomplete-results .bp-autocomplete-item:hover,
+.bp-autocomplete-results .bp-autocomplete-item.highlighted {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+}
+.bp-autocomplete-results .bp-autocomplete-item .sys-sec {
+    font-size: 0.6rem;
+    margin-left: 6px;
+}
+.bp-autocomplete-results .bp-autocomplete-item .sys-region {
+    font-size: 0.6rem;
+    color: #6c757d;
+    margin-left: 8px;
+}
+.bp-autocomplete-results .sys-sec-high {
+    color: #28a745;
+}
+.bp-autocomplete-results .sys-sec-low {
+    color: #ffc107;
+}
+.bp-autocomplete-results .sys-sec-null {
+    color: #dc3545;
 }

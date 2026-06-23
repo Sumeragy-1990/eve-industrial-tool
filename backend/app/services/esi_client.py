@@ -306,6 +306,20 @@ class ESIClient:
             f"/characters/{character.character_id}/ship/",
         )
 
+    # ── Character Skills Endpoints ──────────────────────────────
+
+    async def get_character_skills(
+        self, character: Character
+    ) -> dict:
+        """Fetch all skills for a character.
+
+        Returns {'skills': [{'skill_id': int, 'active_skill_level': int, ...}]}
+        """
+        return await self._auth_get(
+            character,
+            f"/characters/{character.character_id}/skills/",
+        )
+
     # ── Industry Job Endpoints ──────────────────────────────────
 
     async def get_character_industry_jobs(

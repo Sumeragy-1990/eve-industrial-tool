@@ -209,6 +209,16 @@
         .bp-material-adjusted { width: 65px; text-align: right; font-weight: 600; color: var(--squad-orange); }
         .bp-material-price { width: 70px; text-align: right; color: var(--squad-text-dim); font-size: 0.72rem; font-family: monospace; }
         .bp-material-total { width: 80px; text-align: right; font-weight: 600; color: var(--squad-gold); font-size: 0.74rem; font-family: monospace; }
+        .bp-material-sell { width: 70px; text-align: right; font-size: 0.72rem; font-family: monospace; color: #28a745; }
+        .bp-material-buy  { width: 70px; text-align: right; font-size: 0.72rem; font-family: monospace; color: var(--squad-text-dim); }
+        .bp-material-badge { width: 55px; text-align: center; flex-shrink: 0; }
+        .bp-material-badge .badge { font-size: 0.58rem; font-weight: 500; padding: 1px 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+        /* ── Order Material Columns ──────────────────────────────────── */
+        .bp-mat-col-badge { width: 32px; text-align: center; flex-shrink: 0; }
+        .bp-mat-col-badge .badge { font-size: 0.55rem; font-weight: 500; padding: 1px 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .bp-mat-col-sell { width: 65px; text-align: right; font-size: 0.68rem; font-family: monospace; color: #28a745; }
+        .bp-mat-col-buy  { width: 65px; text-align: right; font-size: 0.68rem; font-family: monospace; color: var(--squad-text-dim); }
 
         .bp-material-divider {
             border-top: 1px solid rgba(255,255,255,0.06);
@@ -342,6 +352,49 @@
             color: var(--squad-coral, #e8604c);
             font-weight: bold;
         }
+
+        /* BPC cost-per-run display in stock list (Phase C7) */
+        .bp-bpc-cost {
+            font-size: 0.68rem;
+            color: var(--bs-info);
+        }
+        .bp-bpc-cost-breakdown {
+            font-size: 0.65rem;
+            opacity: 0.8;
+            padding-left: 4px;
+        }
+        .bp-bpc-amortized {
+            font-size: 0.65rem;
+            font-weight: 500;
+        }
+        .summary-row.bpc-cost-row {
+            font-size: 0.7rem;
+            color: var(--bs-info);
+            border-top: none;
+            padding-top: 1px;
+            padding-bottom: 1px;
+        }
+
+        /* ── Standalone Invention Tab ──────────────────────────── */
+        .bp-inv-results {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .bp-inv-results .bp-detail-section {
+            background: var(--squad-card-bg, rgba(255,255,255,0.03));
+            border: 1px solid var(--squad-card-border, rgba(255,255,255,0.08));
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+        }
+        .bp-inv-results .bp-detail-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--squad-info, #0dcaf0);
+            margin-bottom: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding-bottom: 4px;
+        }
     </style>
 </head>
 <body>
@@ -406,6 +459,17 @@
         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#bpTabBpcStock">
             <i class="bi bi-archive"></i> BPC Stock
             <span class="badge bg-info text-dark ms-1" id="bpBpcStockCount">0</span>
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#bpTabInvention" id="bpTabInventionBtn">
+            <i class="bi bi-lightbulb"></i> Invention
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#bpTabInventionCampaigns">
+            <i class="bi bi-rocket-takeoff"></i> Inv. Campaigns
+            <span class="badge bg-success ms-1" id="bpCampaignCount">0</span>
         </button>
     </li>
 </ul>
@@ -502,11 +566,6 @@
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" data-bs-toggle="tab" href="#bpTabInvention" id="bpTabInventionLink">
-                            <i class="bi bi-lightbulb"></i> Invention
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link" data-bs-toggle="tab" href="#bpTabDescription">
                             <i class="bi bi-info-circle"></i> Info
                         </a>
@@ -520,6 +579,16 @@
                             <div class="bp-detail-title">
                                 Materials Required
                                 <small class="text-secondary fw-normal" id="bpDetailConfigInfo">(ME 10, 1 run)</small>
+                            </div>
+                            <div id="bpMaterialsHeader" class="bp-material-row" style="font-size:0.65rem; color:var(--squad-text-dim); border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:4px; padding-bottom:3px;">
+                                <span class="bp-material-badge"></span>
+                                <span class="bp-material-name">Name</span>
+                                <span class="bp-material-base">Base</span>
+                                <span class="bp-material-adjusted">Adjusted</span>
+                                <span class="bp-material-sell">Sell</span>
+                                <span class="bp-material-buy">Buy</span>
+                                <span class="bp-material-price">Price</span>
+                                <span class="bp-material-total">Total</span>
                             </div>
                             <div id="bpMaterialsList">
                                 <div class="text-center text-secondary py-2">Loading...</div>
@@ -587,15 +656,6 @@
                     <div class="tab-pane fade" id="bpTabSkills">
                         <div id="bpSkillsList">
                             <div class="text-center text-secondary py-2">Loading...</div>
-                        </div>
-                    </div>
-
-                    <!-- Invention Tab -->
-                    <div class="tab-pane fade" id="bpTabInvention">
-                        <div id="bpInventionContent">
-                            <div class="text-center text-secondary py-2">
-                                <i class="bi bi-lightbulb"></i> Select a T1 blueprint to see invention options.
-                            </div>
                         </div>
                     </div>
 
@@ -690,7 +750,7 @@
                         <label class="small" style="font-size:0.7rem;">
                             Tax Rate: <span id="bpBuildTaxVal" class="text-warning">5.0</span>%
                         </label>
-                        <input type="range" class="form-range" id="bpBuildTax" min="0" max="25" value="5.0" step="0.5" style="height:8px;">
+                        <input type="range" class="form-range" id="bpBuildTax" min="0" max="25" value="5.0" step="0.1" style="height:8px;">
                         <div class="d-flex justify-content-between" style="font-size:0.6rem;">
                             <span class="text-secondary">0%</span>
                             <span class="text-secondary">25%</span>
@@ -785,6 +845,39 @@
 </div>
 
 </div><!-- /bpTabShopper -->
+
+<!-- ── Invention Tab (standalone) ──────────────────────────────── -->
+<div class="tab-pane fade" id="bpTabInvention">
+    <div class="bp-page">
+        <!-- Toolbar: T1 Blueprint Search -->
+        <div class="bp-toolbar">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="position-relative" style="width:300px;">
+                    <input type="text" class="form-control form-control-sm" id="bpInvSearchInput"
+                           placeholder="Search T1 blueprint name..." style="padding-right:30px;"
+                           oninput="BP.onInvSearchInput()">
+                    <button class="btn btn-sm btn-outline-secondary position-absolute end-0 top-0"
+                            style="border:0;padding:2px 8px;" onclick="BP.clearInvSearch()"
+                            title="Clear" id="bpInvSearchClear">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <small class="text-secondary" id="bpInvSearchStatus">
+                    <i class="bi bi-lightbulb"></i> Select a T1 blueprint to see invention options.
+                </small>
+            </div>
+        </div>
+
+        <!-- Results area -->
+        <div class="bp-inv-results" id="bpInvResults" style="padding:8px 0;">
+            <div class="text-center text-secondary py-5">
+                <i class="bi bi-lightbulb" style="font-size:2rem;"></i>
+                <p class="mt-2">Search for a T1 blueprint above to see invention data.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
 </div><!-- /tab-content -->
 
 <!-- ── Production Orders Tab ─────────────────────────────────── -->
@@ -897,6 +990,10 @@
                 <div class="summary-row">
                     <span>Job Cost</span>
                     <span id="bpSummaryJob">-</span>
+                </div>
+                <div class="summary-row" id="bpSummaryBpcRow" style="display:none;">
+                    <span><i class="bi bi-coin text-info"></i> BPC Amortized Cost</span>
+                    <span id="bpSummaryBpcCost">-</span>
                 </div>
                 <div class="summary-row total">
                     <span>Grand Total</span>
@@ -1023,6 +1120,114 @@
     </div><!-- /tab-content -->
 
 </div><!-- /bpTabBpcStock -->
+
+<!-- ── Invention Campaigns Tab ──────────────────────────────────── -->
+<div class="tab-pane fade" id="bpTabInventionCampaigns">
+
+    <div class="bp-inv-campaign-container">
+
+        <!-- Toolbar -->
+        <div class="bp-order-toolbar">
+            <button class="btn btn-sm btn-outline-success" onclick="BP.openCreateCampaignModal()">
+                <i class="bi bi-plus-lg"></i> New Campaign
+            </button>
+            <button class="btn btn-sm btn-outline-info" onclick="BP.loadCampaigns()">
+                <i class="bi bi-arrow-repeat"></i> Refresh
+            </button>
+        </div>
+
+        <!-- Campaign list -->
+        <div id="bpCampaignListContainer">
+            <div class="text-center text-secondary small py-5">
+                <i class="bi bi-rocket-takeoff" style="font-size:2rem; opacity:0.3;"></i><br>
+                No invention campaigns yet.<br>
+                <small>Create a campaign from the Invention tab to track T2 invention attempts.</small>
+            </div>
+        </div>
+
+        <!-- Campaign Detail Panel (toggled) -->
+        <div id="bpCampaignDetailPanel" class="d-none mt-3">
+            <div class="card bg-dark border-secondary">
+                <div class="card-header d-flex justify-content-between align-items-center py-1" style="border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <span class="fw-bold" id="bpCampaignDetailTitle" style="font-size:0.82rem;">Campaign Detail</span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="BP.closeCampaignDetail()" style="font-size:0.65rem;"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="card-body" id="bpCampaignDetailBody" style="font-size:0.75rem;">
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div><!-- /bpTabInventionCampaigns -->
+
+<!-- ── Campaign Create Modal ───────────────────────────────────── -->
+<div class="modal fade" id="bpCampaignCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title"><i class="bi bi-plus-lg"></i> New Invention Campaign</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="font-size:0.82rem;">
+                <input type="hidden" id="bpCampaignT1BlueprintTypeId">
+                <input type="hidden" id="bpCampaignT2ProductTypeId">
+                <input type="hidden" id="bpCampaignCharacterId">
+
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Campaign Name</label>
+                    <input type="text" class="form-control form-control-sm" id="bpCampaignName" placeholder="e.g. Inv. 1MN Afterburner">
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">T1 Blueprint</label>
+                    <input type="text" class="form-control form-control-sm" id="bpCampaignT1Name" readonly disabled>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">T2 Product</label>
+                    <input type="text" class="form-control form-control-sm" id="bpCampaignT2Name" readonly disabled>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Invention Character</label>
+                    <input type="text" class="form-control form-control-sm" id="bpCampaignCharName" readonly disabled>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label small text-secondary">Cost Index</label>
+                        <input type="text" class="form-control form-control-sm" id="bpCampaignCostIndex" readonly disabled>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-secondary">Total Cost / Job</label>
+                        <input type="text" class="form-control form-control-sm" id="bpCampaignCostPerJob" readonly disabled>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label small text-secondary">Success Probability</label>
+                        <input type="text" class="form-control form-control-sm" id="bpCampaignProb" readonly disabled>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-secondary">Expected Cost / Success</label>
+                        <input type="text" class="form-control form-control-sm" id="bpCampaignExpectedCost" readonly disabled>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label small text-secondary">Target Runs</label>
+                    <input type="number" class="form-control form-control-sm" id="bpCampaignTargetRuns" value="100" min="1">
+                </div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-success" onclick="BP.createCampaign()"><i class="bi bi-check-lg"></i> Create Campaign</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- ── BPC Add/Edit Modal ────────────────────────────────────── -->
 <div class="modal fade" id="bpBpcAddEditModal" tabindex="-1" data-bs-backdrop="static">
@@ -1194,7 +1399,7 @@
                 <div class="col-md-4">
                     <label class="form-label mb-0 text-secondary">Tax Rate (%)</label>
                     <div class="d-flex align-items-center gap-2">
-                        <input type="range" class="form-range flex-fill" id="bpCfgTax" min="0" max="25" value="5.0" step="0.5" style="height:6px;">
+                        <input type="range" class="form-range flex-fill" id="bpCfgTax" min="0" max="25" value="5.0" step="0.1" style="height:6px;">
                         <span class="text-warning small" id="bpCfgTaxVal" style="min-width:40px;text-align:right;">5.0%</span>
                     </div>
                 </div>
@@ -1210,12 +1415,12 @@
                         <input class="form-check-input" type="radio" name="bpCfgIndexMode" id="bpCfgIndexAuto" value="auto" checked>
                         <label class="form-check-label" for="bpCfgIndexAuto">Automatic (via System Name)</label>
                     </div>
-                    <div class="d-flex align-items-center gap-2 mt-1 ms-4">
-                        <input type="text" class="form-control form-control-sm" id="bpCfgSystemName" placeholder="e.g. Irjunen" style="width:160px;font-size:0.75rem;">
-                        <button class="btn btn-sm btn-outline-info" onclick="BP.lookupSystemCostIndex()" style="font-size:0.72rem;">
-                            <i class="bi bi-search"></i> Lookup
-                        </button>
-                        <span class="text-info small" id="bpCfgIndexResult">—</span>
+                    <div class="position-relative mt-1 ms-4">
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="text" class="form-control form-control-sm" id="bpCfgSystemName" placeholder="Type system name..." style="width:200px;font-size:0.75rem;" autocomplete="off" oninput="BP.searchSolarSystems('cfg')">
+                            <span class="text-info small" id="bpCfgIndexResult">—</span>
+                        </div>
+                        <div id="bpCfgSystemResults" class="bp-autocomplete-results" style="display:none;"></div>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -1403,12 +1608,12 @@
                 </div>
                 <div class="mb-2">
                     <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">System Cost Index</label>
-                    <div class="d-flex align-items-center gap-1">
-                        <input type="text" class="form-control form-control-sm" id="bpSelSystemName" placeholder="System name" style="font-size:0.75rem;width:130px;">
-                        <button class="btn btn-sm btn-outline-info" onclick="BP.selLookupSystemCostIndex()" style="font-size:0.65rem;padding:1px 6px;">
-                            <i class="bi bi-search"></i>
-                        </button>
-                        <span class="text-info small" id="bpSelIdxResult" style="min-width:50px;">—</span>
+                    <div class="position-relative">
+                        <div class="d-flex align-items-center gap-1">
+                            <input type="text" class="form-control form-control-sm" id="bpSelSystemName" placeholder="Type system name..." style="font-size:0.75rem;width:180px;" autocomplete="off" oninput="BP.searchSolarSystems('sel')">
+                            <span class="text-info small" id="bpSelIdxResult" style="min-width:50px;">—</span>
+                        </div>
+                        <div id="bpSelSystemResults" class="bp-autocomplete-results" style="display:none;"></div>
                     </div>
                     <div class="mt-1">
                         <label class="small text-secondary" style="font-size:0.7rem;">Manual override (%)</label>

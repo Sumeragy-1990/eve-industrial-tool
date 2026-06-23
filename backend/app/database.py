@@ -44,6 +44,9 @@ async def init_db():
         from app.models.bpc_cost import UserBPCCost  # noqa
         from app.models.bpc_stock_threshold import UserBPCStockThreshold  # noqa
         from app.models.sde_blueprint import SDEBlueprint, SDEBlueprintMaterial, SDEBlueprintProduct, SDEBlueprintSkill  # noqa
+        from app.models.character_skill import CharacterSkill  # noqa
+        from app.models.invention_campaign import InventionCampaign  # noqa
+        from app.models.invention_campaign_result import InventionCampaignResult  # noqa
         from app.models.sde_solar_system import SDESolarSystem, SDERegion, SDEStation  # noqa
 
         await conn.run_sync(Base.metadata.create_all)
