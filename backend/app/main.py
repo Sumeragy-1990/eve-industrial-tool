@@ -1,5 +1,6 @@
 """EVE Industrial Tool – FastAPI Application Entry Point."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,6 +27,30 @@ logger = logging.getLogger(__name__)
 # ── Lifespan ───────────────────────────────────────────────────
 
 
+async def _startup_price_refresh():
+    """Run one market price refresh immediately after startup.
+
+    The auto-sync loop sleeps for the full interval (4 h) before its first
+    run, so after a fresh install or restart the price cache is empty for up
+    to 4 hours. This coroutine fires once, right after DB init, to pre-fill
+    the cache so blueprints show prices immediately.
+    """
+    # Small delay so the DB session factory is fully ready
+    await asyncio.sleep(5)
+    try:
+        from app.database import async_session_factory
+        from app.services.market_service import refresh_all_prices
+        async with async_session_factory() as db:
+            stats = await refresh_all_prices(db)
+            logger.info(
+                "Startup price refresh done: %d updated, %d errors",
+                stats.get("updated", 0),
+                stats.get("errors", 0),
+            )
+    except Exception as exc:
+        logger.warning("Startup price refresh failed (non-fatal): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database on startup and start background tasks."""
@@ -35,6 +60,11 @@ async def lifespan(app: FastAPI):
     # Start the auto-sync background loop
     start_auto_sync()
     logger.info("Auto-sync background task started")
+    # Trigger an immediate price refresh in the background on startup so prices
+    # are available right away instead of waiting up to 4 hours for the first
+    # auto-sync interval to elapse.
+    asyncio.create_task(_startup_price_refresh())
+    logger.info("Startup price refresh scheduled")
     yield
     logger.info("Shutting down EVE Industrial Tool ...")
 

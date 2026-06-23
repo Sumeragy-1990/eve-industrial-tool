@@ -2301,7 +2301,6 @@
     /** Show the station selector modal, pre-filled from current config */
     function showStationSelector(targetOrderIndex) {
         var c = loadConfig();
-        _stationSelectorPendingTarget = targetOrderIndex;
 
         // Pre-fill modal fields from config
         setSel("bpSelFacilityType", c.facility_type || "npc_station");
@@ -2316,181 +2315,78 @@
         if (manualIdxEl) {
             manualIdxEl.value = c.system_cost_index != null ? c.system_cost_index : 5.0;
         }
-        // Price source radio
         var priceSell = document.getElementById("bpSelPriceSell");
         var priceBuy = document.getElementById("bpSelPriceBuy");
         if (priceSell) priceSell.checked = (c.price_source !== "jita_buy");
         if (priceBuy) priceBuy.checked = (c.price_source === "jita_buy");
 
-        // Show modal — dispose any stale Bootstrap instance first
+        // Store target on the modal element itself — no module-level state,
+        // no hidden.bs.modal event listener, no race condition.
         var modalEl = document.getElementById("bpStationSelectorModal");
-        if (modalEl) {
-            try {
-                var oldModal = bootstrap.Modal.getInstance(modalEl);
-                if (oldModal) oldModal.dispose();
-            } catch (e) { /* ignore */ }
-            // Remove any previous cancel listener to avoid duplicates
-            modalEl.removeEventListener("hidden.bs.modal", _onStationSelectorDismiss);
-            modalEl.addEventListener("hidden.bs.modal", _onStationSelectorDismiss);
-            var bsModal = new bootstrap.Modal(modalEl);
-            bsModal.show();
-        }
+        if (!modalEl) return;
+        modalEl._orderTarget = targetOrderIndex;
+
+        // Clean up any stale Bootstrap instance before showing
+        try {
+            var old = bootstrap.Modal.getInstance(modalEl);
+            if (old) old.dispose();
+        } catch(e) {}
+
+        var bsModal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
+        bsModal.show();
     }
 
-    /** Called when station selector is dismissed (cancel/X/backdrop) — fallback to current config */
-    function _onStationSelectorDismiss() {
-        // GUARD: if confirmStationSelector already consumed the pending target
-        // (set it to null) and called _proceedCreateOrder, do nothing.
-        // The _stationSelectorProcessing flag alone is not sufficient because
-        // hidden.bs.modal can fire asynchronously AFTER the flag was already
-        // reset by a previous cycle — this null-check catches it definitively.
-        // CRITICAL FIX: use == null (loose equality) to catch BOTH null AND undefined.
-        // sendCartToOrder() called without args sets pending to undefined (not null),
-        // so _stationSelectorPendingTarget === null was FALSE — the guard never fired.
-        // This was the real cause of the dark-screen / double-proceed bug.
-        if (_stationSelectorPendingTarget == null) {
-            console.log("[SS] dismiss skipped — target already consumed");
-            return;
-        }
-        var targetIdx = _stationSelectorPendingTarget;
-        _stationSelectorPendingTarget = null;
-        // Remove the listener so it only fires once
-        var modalEl = document.getElementById("bpStationSelectorModal");
-        if (modalEl) {
-            modalEl.removeEventListener("hidden.bs.modal", _onStationSelectorDismiss);
-        }
-        // Fallback: create/append order with current config values (no changes)
-        _proceedCreateOrder(targetIdx);
-    }
-
-    /** Lookup system cost index from selector modal */
-    function selLookupSystemCostIndex() {
-        var sysNameEl = document.getElementById("bpSelSystemName");
-        var idxResultEl = document.getElementById("bpSelIdxResult");
-        if (!sysNameEl || !idxResultEl) return;
-        var name = sysNameEl.value.trim();
-        if (!name) { idxResultEl.textContent = "—"; return; }
-        idxResultEl.textContent = "Looking up...";
-        fetch("/api/industry/system-cost-index?system_name=" + encodeURIComponent(name), {
-            credentials: "include"
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data && data.cost_index != null) {
-                idxResultEl.textContent = (data.cost_index * 100).toFixed(2) + "%";
-            } else if (data && data.cost_index_percent != null) {
-                idxResultEl.textContent = Number(data.cost_index_percent).toFixed(2) + "%";
-            } else {
-                idxResultEl.textContent = "—";
-            }
-        })
-        .catch(function() {
-            idxResultEl.textContent = "Error";
-        });
-    }
-
-    /** Confirm station selector and proceed to create/append order */
+    /** Confirm button handler — reads _orderTarget from the modal element directly.
+     *  No event listener, no pending state, no race condition possible. */
     async function confirmStationSelector() {
-        console.log("[CSS-TRACE] confirmStationSelector ENTERED (build v3)");
         var modalEl = document.getElementById("bpStationSelectorModal");
-        console.log("[CSS-TRACE] modalEl:", !!modalEl,
-            "| _cart.length:", (typeof _cart !== "undefined" ? _cart.length : "undef"),
-            "| backdrops:", document.querySelectorAll(".modal-backdrop").length);
+        var targetIdx = modalEl ? modalEl._orderTarget : undefined;
 
-        // ── Apply selected values to config ──────────────────────────
-        // ROOT CAUSE of the "dark screen / no proceed" bug: this prelude
-        // (especially renderConfigBar, where an unguarded c.tax_rate.toFixed
-        // could throw) ran BEFORE the modal cleanup. Any exception here aborted
-        // the function, leaving the backdrop in place and never reaching
-        // _proceedCreateOrder. The ESC path worked precisely because it never
-        // runs this prelude. We now isolate it so it can NEVER block the flow.
+        // Apply config from modal fields
         try {
             var c = loadConfig();
             c.facility_type = getSel("bpSelFacilityType") || "npc_station";
             c.rigs = getSel("bpSelRigs") || "none";
             c.system_name = getElVal("bpSelSystemName") || "";
-
-            // System cost index: prefer auto lookup result, fallback to manual
             var idxResultEl = document.getElementById("bpSelIdxResult");
             if (idxResultEl && idxResultEl.textContent !== "—" && idxResultEl.textContent !== "Looking up..." && idxResultEl.textContent !== "Error") {
                 c.system_cost_index = parseFloat(idxResultEl.textContent) || null;
             } else {
                 c.system_cost_index = parseFloat(getElVal("bpSelIdxManual")) || null;
             }
-
-            // Price source
             c.price_source = (document.getElementById("bpSelPriceBuy") && document.getElementById("bpSelPriceBuy").checked) ? "jita_buy" : "jita_sell";
-
-            // Guard against a persisted null tax_rate that would make
-            // renderConfigBar's .toFixed throw.
             if (typeof c.tax_rate !== "number") c.tax_rate = 5.0;
-
             saveConfig();
             renderConfigBar();
         } catch (err) {
-            // Never let a config/render error block order creation.
-            console.error("[confirmStationSelector] prelude failed, proceeding anyway:", err);
+            console.error("[confirmStationSelector] config save failed:", err);
         }
 
-        var targetIdx = _stationSelectorPendingTarget;
-        _stationSelectorPendingTarget = null;
-
-        // ── ALWAYS clean up the modal + backdrop deterministically ──────────
-        // The runtime trace proved the real failure: relying on Bootstrap's
-        // hide() -> hidden.bs.modal chain left a stuck `.modal-backdrop`
-        // (the "dark screen"). We no longer depend on that event chain at all.
-        _forceCloseStationSelector(modalEl);
-
-        // ── Guard: empty cart must NOT silently no-op behind a dark screen ──
-        // Trace showed _cart.length === 0 at confirm time (cart was emptied by
-        // a previous successful run that persisted [] to localStorage).
-        // _proceedCreateOrder() returns immediately on an empty cart, so
-        // without this branch the user just saw a stuck backdrop and nothing
-        // else. Now the modal is already closed above and we tell the user.
-        if (typeof _cart === "undefined" || _cart.length === 0) {
-            console.log("[CSS-TRACE] cart empty at confirm — modal closed, nothing to create");
-            alert("Cart is empty — nothing to create. Add items to the cart first.");
-            return;
-        }
-
-        // ── Execute order creation inside try/finally so _stationSelectorProcessing
-        //    is ALWAYS reset, even on exception or empty-cart early return. ──
-        try {
-            _stationSelectorProcessing = true;
-            console.log("[CSS-TRACE] proceeding to create order, targetIdx:", targetIdx);
-            await _proceedCreateOrder(targetIdx);
-        } finally {
-            // MUST reset the guard so future station-selector cycles work
-            // (the empty-cart branch above won't reach this line without finally)
-            _stationSelectorProcessing = false;
-        }
-    }
-
-    /** Deterministically close the station selector modal and clear its backdrop. */
-    function _forceCloseStationSelector(modalEl) {
-        if (!modalEl) modalEl = document.getElementById("bpStationSelectorModal");
+        // Close modal synchronously — no events, just DOM manipulation
         if (modalEl) {
-            modalEl.removeEventListener("hidden.bs.modal", _onStationSelectorDismiss);
-            try {
-                var bsModal = bootstrap.Modal.getInstance(modalEl);
-                if (bsModal) bsModal.dispose(); // kill Bootstrap listeners cleanly
-            } catch (e) { /* ignore */ }
+            try { var bsModal = bootstrap.Modal.getInstance(modalEl); if (bsModal) bsModal.dispose(); } catch(e) {}
             modalEl.classList.remove("show");
             modalEl.style.display = "none";
             modalEl.setAttribute("aria-hidden", "true");
             modalEl.removeAttribute("aria-modal");
             modalEl.removeAttribute("role");
+            modalEl._orderTarget = undefined;
         }
-        var backdrops = document.querySelectorAll(".modal-backdrop");
-        for (var b = 0; b < backdrops.length; b++) {
-            backdrops[b].remove();
-        }
+        document.querySelectorAll(".modal-backdrop").forEach(function(el) { el.remove(); });
         document.body.classList.remove("modal-open");
         document.body.style.overflow = "";
         document.body.style.paddingRight = "";
+
+        // Guard: cart must not be empty
+        if (!_cart || _cart.length === 0) {
+            alert("Cart ist leer — bitte erst Blueprints hinzufügen.");
+            return;
+        }
+
+        await _proceedCreateOrder(targetIdx);
     }
 
-    /** Internal: create or append order (used by station selector and fallback) */
+        /** Internal: create or append order (used by station selector and fallback) */
     async function _proceedCreateOrder(targetOrderIndex) {
         if (_cart.length === 0) {
             // Cart could have been cleared already; just return silently
