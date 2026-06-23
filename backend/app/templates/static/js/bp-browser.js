@@ -1334,12 +1334,16 @@
                 console.warn("build-steps fetch failed for " + blueprintTypeId + ":", bsErr);
             }
 
-            // Fetch prices for materials
+            // Fetch prices for materials AND the finished product
             var matTypeIds = [];
             if (data.materials) {
                 for (var di = 0; di < data.materials.length; di++) {
                     matTypeIds.push(data.materials[di].material_type_id);
                 }
+            }
+            // Also fetch price for the finished product (for Jita Sell display)
+            if (data.product_type_id) {
+                matTypeIds.push(data.product_type_id);
             }
             var aggMats = (buildStepsData && buildStepsData.aggregated_materials) || [];
             for (var ai = 0; ai < aggMats.length; ai++) {
@@ -1351,6 +1355,9 @@
 
             // Materials (with optional resolved base minerals)
             renderMaterials(data, buildStepsData);
+
+            // Build Steps Tree (recursive BUY/Build tree)
+            renderBuildStepsTree(buildStepsData);
 
             // Skills
             renderSkills(data);
@@ -1384,12 +1391,34 @@
             return;
         }
 
+        // Show Jita Sell price for finished item above materials
+        var productPrice = getPrice(data.product_type_id);
+        var jitaSellPrice = (productPrice && productPrice.sell_price_min != null)
+            ? productPrice.sell_price_min : null;
+        var jitaBuyPrice = (productPrice && productPrice.sell_price_max != null)
+            ? productPrice.sell_price_max : null;
+
+        var html = '<div class="bp-detail-section mb-2 p-2" style="font-size:0.78rem; border:1px solid var(--bs-border-color); border-radius:4px;">' +
+            '<span class="text-secondary">Jita Sell: </span>';
+        if (jitaSellPrice != null) {
+            html += '<span class="text-success fw-bold">' + formatIsk(jitaSellPrice) + '</span>';
+            // Show per-unit if quantity > 1
+            if (data.product_quantity_per_run && data.product_quantity_per_run > 1) {
+                html += ' <span class="text-secondary small">(' + formatIsk(jitaSellPrice / data.product_quantity_per_run) + '/unit)</span>';
+            }
+        } else {
+            html += '<span class="text-secondary">—</span>';
+        }
+        if (jitaBuyPrice != null) {
+            html += ' <span class="text-secondary">| Buy: </span><span class="text-warning">' + formatIsk(jitaBuyPrice) + '</span>';
+        }
+        html += '</div>';
+
         // Determine whether we have buildSteps with sub-components (for Base Minerals section)
         var hasSubSteps = (buildStepsData && buildStepsData.steps && buildStepsData.steps[0] &&
                            buildStepsData.steps[0].sub_steps &&
                            buildStepsData.steps[0].sub_steps.length > 0);
 
-        let html = "";
         for (const m of data.materials) {
             var priceInfo = getEffectivePrice(m.material_type_id);
             var unitPrice = priceInfo.price;
@@ -1476,6 +1505,201 @@
         document.getElementById("bpMaterialsList").innerHTML = html;
         document.getElementById("bpTotalVolume").textContent =
             formatNumber(data.materials_total_volume || 0) + " m³";
+    }
+
+    /**
+     * Render a single build step node (shared between Shopper and Orders).
+     */
+    function _renderBuildStepNode(step, depth) {
+        var isBuy = !step.sub_steps || step.sub_steps.length === 0;
+        var badgeClass = isBuy ? "bg-warning text-dark" : "bg-primary";
+        var badgeText = isBuy ? "BUY" : "Build";
+        var marginLeft = (depth * 16) + "px";
+
+        var html = '<div class="bp-bst-node" style="margin-left:' + marginLeft + '; padding:2px 0;">';
+
+        // Node header
+        html += '<div class="d-flex align-items-center gap-1" style="cursor:pointer;" onclick="BP._bstToggle(this)">';
+
+        // Expand/collapse for Build nodes
+        if (!isBuy) {
+            html += '<i class="bi bi-chevron-right bp-bst-chevron" style="font-size:0.65rem; width:12px;"></i>';
+        } else {
+            html += '<span style="width:12px;"></span>';
+        }
+
+        // Quantity
+        html += '<span class="text-secondary" style="min-width:30px; text-align:right;">×' + formatNumber(step.runs_needed || 1) + '</span>';
+
+        // Name
+        html += '<span class="text-light">' + escHtml(step.product_name || step.blueprint_name || "Unknown") + '</span>';
+
+        // Badge
+        html += '<span class="badge ' + badgeClass + '" style="font-size:0.6rem;">' + badgeText + '</span>';
+
+        // Materials summary
+        if (step.materials && step.materials.length > 0) {
+            html += '<span class="text-secondary" style="font-size:0.65rem;">(' + step.materials.length + ' materials)</span>';
+        }
+
+        html += '</div>'; // /node-header
+
+        // Materials list (hidden for Build nodes, shown for BUY)
+        if (step.materials && step.materials.length > 0) {
+            var matStyle = isBuy ? "" : "display:none;";
+            html += '<div class="bp-bst-materials" style="' + matStyle + 'margin-left:' + (marginLeft + 16) + 'px;">';
+            for (var i = 0; i < step.materials.length; i++) {
+                var m = step.materials[i];
+                var priceInfo = getEffectivePrice(m.material_type_id);
+                var priceStr = priceInfo.price != null ? formatIsk(priceInfo.price) : '-';
+                var catBadge = matCategoryBadge(m.category_id);
+                html += '<div class="d-flex align-items-center gap-1" style="padding:1px 0; font-size:0.68rem;">' +
+                    catBadge +
+                    '<span>' + escHtml(m.material_name) + '</span>' +
+                    '<span class="text-secondary">×' + formatNumber(m.quantity || 0) + '</span>' +
+                    '<span class="text-info">' + priceStr + '</span>' +
+                    '</div>';
+            }
+            html += '</div>'; // /bp-bst-materials
+        }
+
+        // Sub-steps (children)
+        if (step.sub_steps && step.sub_steps.length > 0) {
+            html += '<div class="bp-bst-children" style="display:none;">';
+            for (var i = 0; i < step.sub_steps.length; i++) {
+                html += _renderBuildStepNode(step.sub_steps[i], depth + 1);
+            }
+            html += '</div>';
+        }
+
+        html += '</div>'; // /bp-bst-node
+        return html;
+    }
+
+    /**
+     * Render the Build Steps Tree in the Shopper detail panel.
+     * Shows BUY vs Build decisions per sub-component.
+     */
+    function renderBuildStepsTree(buildStepsData) {
+        var container = document.getElementById("bpBuildStepsTree");
+        var section = document.getElementById("bpBuildStepsSection");
+        if (!container || !section) return;
+
+        if (!buildStepsData || !buildStepsData.steps || buildStepsData.steps.length === 0) {
+            section.style.display = "none";
+            return;
+        }
+
+        section.style.display = "block";
+
+        var html = '';
+        for (var i = 0; i < buildStepsData.steps.length; i++) {
+            html += _renderBuildStepNode(buildStepsData.steps[i], 0);
+        }
+        container.innerHTML = html;
+    }
+
+    /**
+     * Toggle build steps tree expand/collapse.
+     */
+    function _bstToggle(el) {
+        var chevron = el.querySelector('.bp-bst-chevron');
+        var children = el.parentElement.querySelector('.bp-bst-children');
+        var materials = el.parentElement.querySelector('.bp-bst-materials');
+
+        if (children) {
+            if (children.style.display === "none") {
+                children.style.display = "block";
+                if (chevron) chevron.className = "bi bi-chevron-down bp-bst-chevron";
+            } else {
+                children.style.display = "none";
+                if (chevron) chevron.className = "bi bi-chevron-right bp-bst-chevron";
+            }
+        }
+        if (materials && !children) {
+            // BUY items: toggle materials list
+            if (materials.style.display === "none") {
+                materials.style.display = "block";
+                if (chevron) chevron.className = "bi bi-chevron-down bp-bst-chevron";
+            } else {
+                materials.style.display = "none";
+                if (chevron) chevron.className = "bi bi-chevron-right bp-bst-chevron";
+            }
+        }
+    }
+
+    function toggleBuildStepsTree() {
+        var tree = document.getElementById("bpBuildStepsTree");
+        var toggle = document.getElementById("bpBuildStepsToggle");
+        if (!tree || !toggle) return;
+        if (tree.style.display === "none") {
+            tree.style.display = "block";
+            toggle.className = "bi bi-chevron-down";
+        } else {
+            tree.style.display = "none";
+            toggle.className = "bi bi-chevron-right";
+        }
+    }
+
+    /**
+     * Render build steps tree for a Production Order item (reuses _renderBuildStepNode).
+     */
+    function _renderBuildStepsTreeForOrder(buildStepsData) {
+        if (!buildStepsData || !buildStepsData.steps || buildStepsData.steps.length === 0) {
+            return '<div class="text-secondary small py-1">No build steps.</div>';
+        }
+        var html = '';
+        for (var si = 0; si < buildStepsData.steps.length; si++) {
+            html += _renderBuildStepNode(buildStepsData.steps[si], 0);
+        }
+        return html;
+    }
+
+    /**
+     * Toggle expand/collapse of Build Steps Tree for a specific order item.
+     * Fetches build-steps API on first expand if not already loaded.
+     */
+    async function toggleOrderBuildSteps(orderIdx, itemIdx) {
+        if (orderIdx < 0 || orderIdx >= _productionOrders.length) return;
+        var order = _productionOrders[orderIdx];
+        if (!order || !order.items || itemIdx >= order.items.length) return;
+        var item = order.items[itemIdx];
+        var containerId = 'bpOrderBst_' + itemIdx;
+        var container = document.getElementById(containerId);
+        if (!container) return;
+
+        // If not yet loaded, fetch from API
+        if (!item._buildStepsData) {
+            item._buildStepsLoading = true;
+            renderOrderDetail(); // show spinner
+            try {
+                var bpid = item.blueprint_type_id || item.product_type_id;
+                if (!bpid) {
+                    item._buildStepsData = { steps: [] };
+                } else {
+                    var itemMe = item.me != null ? item.me : 10;
+                    var itemTe = item.te != null ? item.te : 20;
+                    var resp = await fetch("/api/blueprints/" + bpid + "/build-steps?me=" + itemMe + "&te=" + itemTe);
+                    if (resp.ok) {
+                        var data = await resp.json();
+                        item._buildStepsData = data;
+                    } else {
+                        item._buildStepsData = { steps: [] };
+                    }
+                }
+            } catch (err) {
+                console.warn("[BP] Failed to fetch build steps:", err.message);
+                item._buildStepsData = { steps: [] };
+            }
+            item._buildStepsLoading = false;
+            item._buildStepsExpanded = true;
+            renderOrderDetail();
+            return;
+        }
+
+        // Already loaded — toggle visibility
+        item._buildStepsExpanded = !item._buildStepsExpanded;
+        renderOrderDetail();
     }
 
     function renderSkills(data) {
@@ -3338,10 +3562,11 @@
                     else buyQty += m.total_quantity;
                 }
             }
-            // Sub-step indicator
-            var hasSubSteps = item.sub_steps && item.sub_steps.length > 0;
+            // Sub-step indicator — check if already loaded or needs loading
+            var hasSubSteps = item._buildStepsData && item._buildStepsData.steps && item._buildStepsData.steps.length > 0;
+            var stepsLoaded = !!(item._buildStepsData);
             html += '<span class="bp-order-prod-actions">' +
-                (hasSubSteps ? '<span class="bp-order-substep-badge" title="Hat Zwischenschritte – klicken zum Anzeigen"><i class="bi bi-diagram-3"></i> ' + item.sub_steps.length + '</span>' : '') +
+                (hasSubSteps ? '<span class="bp-order-substep-badge" title="Build Steps"><i class="bi bi-diagram-3"></i> View Steps</span>' : '') +
                 '<span class="bp-badge-build" title="Build qty">' + formatNumber(buildQty) + '</span>' +
                 ' / ' +
                 '<span class="bp-badge-buy" title="Buy qty">' + formatNumber(buyQty) + '</span>' +
@@ -3427,6 +3652,24 @@
             } else if (expanded && !hasMaterials) {
                 html += '<div class="bp-order-mat-row mat-no-materials">' +
                     '<span class="text-secondary small">No material data. Re-send from cart to fetch costs.</span>' +
+                    '</div>';
+            }
+
+            // ── Build Steps Tree (per item, collapsible) ──
+            if (expanded && item.blueprint_type_id) {
+                var stepsContainerId = 'bpOrderBst_' + i;
+                var stepsExpanded = item._buildStepsExpanded || false;
+                html += '<div class="bp-order-bst-section" style="padding-left:8px; margin-top:2px;">' +
+                    '<div class="d-flex align-items-center gap-1" style="font-size:0.7rem; cursor:pointer;"' +
+                    ' onclick="BP.toggleOrderBuildSteps(' + _activeOrderIndex + ',' + i + ')">' +
+                    '<i class="bi ' + (stepsExpanded && item._buildStepsData ? 'bi-chevron-down' : 'bi-chevron-right') + '" style="font-size:0.6rem;"></i>' +
+                    '<span class="text-secondary">Build Steps</span>' +
+                    (item._buildStepsLoading ? '<span class="spinner-border spinner-border-sm ms-1" style="width:10px;height:10px;"></span>' : '') +
+                    (item._buildStepsData && !stepsExpanded ? '<span class="text-secondary ms-1 small">(' + (item._buildStepsData.steps ? item._buildStepsData.steps.reduce(function(acc, s) { return acc + (s.sub_steps ? s.sub_steps.length : 0); }, 0) : 0) + ' sub-steps)</span>' : '') +
+                    '</div>' +
+                    '<div id="' + stepsContainerId + '" class="bp-bst-children" style="' + (stepsExpanded ? '' : 'display:none;') + 'margin-left:4px; border-left:1px solid rgba(255,255,255,0.06); padding-left:8px;">' +
+                    (item._buildStepsData && stepsExpanded ? _renderBuildStepsTreeForOrder(item._buildStepsData) : '') +
+                    '</div>' +
                     '</div>';
             }
         }
@@ -3966,9 +4209,17 @@
 
             var badgeHtml = matCategoryBadge(mat.category_id);
 
+            var catName = "";
+            switch (mat.category_id) {
+                case 4: catName = "Mineral"; break;
+                case 5: catName = "Planet"; break;
+                case 17: catName = "Reaction"; break;
+                case 18: catName = "Advanced"; break;
+                default: catName = "Other"; break;
+            }
             html += '<div class="bp-override-row' + (hasOverride ? ' has-override' : '') + '">';
             html += '<span class="bp-override-badge">' + badgeHtml + '</span>';
-            html += '<span class="bp-override-name" title="' + escHtml(mat.name) + '">' + escHtml(mat.name) + '</span>';
+            html += '<span class="bp-override-name" title="ID: ' + mat.type_id + ' | ' + catName + '">' + escHtml(mat.name) + '</span>';
             html += '<span class="bp-override-jita bp-override-jita-sell" title="Jita Sell">' + (mat.jita_sell != null ? formatIsk(mat.jita_sell) : '-') + '</span>';
             html += '<span class="bp-override-jita bp-override-jita-buy" title="Jita Buy">' + (mat.jita_buy != null ? formatIsk(mat.jita_buy) : '-') + '</span>';
             html += '<input type="number" class="bp-override-input" id="bpOverrideInput_' + mat.type_id + '" ' +
@@ -5854,6 +6105,87 @@
      * fetches all BPOs from /api/blueprints/list?is_copy=false,
      * and creates _bpcEntries for any BPO that doesn't already have one.
      */
+    /**
+     * Helper: add a single asset entry to _bpcEntries if not duplicate.
+     * Returns true if added, false if skipped (already exists).
+     */
+    function _addAssetEntry(bp, bpLookup) {
+        var bpid = bp.type_id;
+        var isCopy = bp.is_blueprint_copy;
+        var actualRuns = isCopy ? (bp.blueprint_runs || 1) : 1;
+        var bpcType = isCopy ? "bpc" : "original_bpo";
+        var sourceNote = bp.location_name || (bp.is_corp_asset ? "Corp Asset" : "Character Asset");
+        var lookup = bpLookup ? bpLookup[bpid] : null;
+        var productTypeId = lookup ? lookup.product_type_id : bpid;
+        var productName = lookup ? lookup.product_name : (bp.type_name || "Unknown");
+
+        // Check if entry already exists
+        for (var ei = 0; ei < _bpcEntries.length; ei++) {
+            var existing = _bpcEntries[ei];
+            if (existing.product_type_id !== productTypeId) continue;
+            if (!isCopy && existing.bpc_type === "original_bpo") return false; // BPO exists
+            if (isCopy && existing.bpc_type === "bpc" &&
+                existing.stock_runs === actualRuns &&
+                existing.source_note === sourceNote) return false; // BPC exists
+            if (isCopy && existing.bpc_type === "bpc" &&
+                existing.product_type_id === productTypeId &&
+                existing.auto_generated) {
+                // Update existing auto-generated BPC with correct runs
+                existing.stock_runs = actualRuns;
+                existing.source_note = sourceNote;
+                existing.me = bp.blueprint_me || 0;
+                existing.te = bp.blueprint_te || 0;
+                return false;
+            }
+        }
+
+        _bpcEntries.push({
+            id: Date.now() + Math.floor(Math.random() * 1000) + _bpcEntries.length,
+            product_type_id: productTypeId,
+            product_name: productName,
+            stock_runs: actualRuns,
+            min_runs_warning: _bpStockThresholds ? (_bpStockThresholds.global_default || 10) : 10,
+            bpc_type: bpcType,
+            notes: isCopy ? ("Auto BPC " + actualRuns + " runs") : "Auto-generated from BPO asset",
+            links: [],
+            source_note: sourceNote,
+            auto_generated: true,
+            created_at: new Date().toISOString(),
+            me: bp.blueprint_me || 0,
+            te: bp.blueprint_te || 0,
+        });
+        return true;
+    }
+
+    async function bpcRefreshFromAssets() {
+        if (!confirm("Refresh all BPC entries from character assets?\n\nThis will:" +
+            "\n• Import all BPOs (1 run each)" +
+            "\n• Import all BPCs with actual run counts" +
+            "\n• Update existing auto-generated entries" +
+            "\n• Manual entries will NOT be touched")) {
+            return;
+        }
+        // Show loading
+        var btn = document.querySelector('[onclick*="bpcRefreshFromAssets"]') ||
+            document.querySelector('[onclick*="bpcAutoGenerateFromAssets"]');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Syncing...';
+        }
+        try {
+            await syncBlueprints(); // Ensure latest assets from ESI
+            await bpcAutoGenerateFromAssets();
+            bpcRenderList();
+        } catch (e) {
+            console.warn("bpcRefreshFromAssets failed:", e.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh from Assets';
+            }
+        }
+    }
+
     async function bpcAutoGenerateFromAssets() {
         bpcLoadEntries();
 
@@ -5893,65 +6225,38 @@
             }
         }
 
-        // Fetch all BPOs from assets (personal + corp)
         try {
-            var data = await apiGet("/api/blueprints/list?is_copy=false&per_page=200");
-            if (!data || !data.blueprints || data.blueprints.length === 0) return;
+            var newCount = 0;
 
-            // Get unique blueprint type_ids and their names
-            var bpoMap = {};
-            for (var i = 0; i < data.blueprints.length; i++) {
-                var bp = data.blueprints[i];
-                var bpid = bp.type_id;
-                if (!bpid) continue;
-                if (!bpoMap[bpid]) {
-                    bpoMap[bpid] = {
-                        type_name: bp.type_name || "Unknown",
-                        type_id: bpid
-                    };
+            // 1) Import BPOs (unlimited use, stock_runs = 1 per BPO)
+            var bpoData = await apiGet("/api/blueprints/list?is_copy=false&per_page=200");
+            if (bpoData && bpoData.blueprints) {
+                var seenBpoPids = {};
+                for (var i = 0; i < bpoData.blueprints.length; i++) {
+                    var bp = bpoData.blueprints[i];
+                    if (!bp.type_id) continue;
+                    var lookup = bpLookup[bp.type_id];
+                    var pid = lookup ? lookup.product_type_id : bp.type_id;
+                    if (seenBpoPids[pid]) continue;
+                    seenBpoPids[pid] = true;
+                    if (_addAssetEntry(bp, bpLookup)) newCount++;
                 }
             }
 
-            var newCount = 0;
-            var bpoIds = Object.keys(bpoMap);
-            for (var i = 0; i < bpoIds.length; i++) {
-                var bpid = parseInt(bpoIds[i]);
-                var bpoInfo = bpoMap[bpid];
-                var lookup = bpLookup[bpid];
-                var productTypeId = lookup ? lookup.product_type_id : bpid;
-                var productName = lookup ? lookup.product_name : (bpoInfo.type_name || "Unknown");
-
-                // Check if entry already exists (by product_type_id)
-                var exists = false;
-                for (var ei = 0; ei < _bpcEntries.length; ei++) {
-                    if (_bpcEntries[ei].product_type_id === productTypeId) {
-                        exists = true;
-                        break;
-                    }
+            // 2) Import BPCs with actual runs from assets
+            var bpcData = await apiGet("/api/blueprints/list?is_copy=true&per_page=200");
+            if (bpcData && bpcData.blueprints) {
+                for (var i = 0; i < bpcData.blueprints.length; i++) {
+                    var bp = bpcData.blueprints[i];
+                    if (!bp.type_id || !bp.blueprint_runs || bp.blueprint_runs <= 0) continue;
+                    if (_addAssetEntry(bp, bpLookup)) newCount++;
                 }
-                if (exists) continue;
-
-                // Create new auto-generated entry
-                _bpcEntries.push({
-                    id: Date.now() + Math.floor(Math.random() * 1000) + i,
-                    product_type_id: productTypeId,
-                    product_name: productName,
-                    stock_runs: 1,
-                    min_runs_warning: _bpStockThresholds ? (_bpStockThresholds.global_default || 10) : 10,
-                    bpc_type: "original_bpo",
-                    notes: "Auto-generated from BPO asset",
-                    links: [],
-                    source_note: "BPO Asset",
-                    auto_generated: true,
-                    created_at: new Date().toISOString(),
-                });
-                newCount++;
             }
 
             if (newCount > 0) {
                 bpcSaveEntries();
                 bpcRenderList();
-                console.log("bpcAutoGenerate: created " + newCount + " entries from BPO assets");
+                console.log("bpcAutoGenerate: created " + newCount + " entries from assets (BPOs + BPCs)");
             }
         } catch (e) {
             console.warn("bpcAutoGenerateFromAssets failed:", e.message);
@@ -6721,6 +7026,7 @@
         updateOrderItemTE: updateOrderItemTE,
         bpcAddEntry: bpcAddEntry,
         bpcAutoGenerateFromAssets: bpcAutoGenerateFromAssets,
+        bpcRefreshFromAssets: bpcRefreshFromAssets,
         bpcEditEntry: bpcEditEntry,
         bpcDeleteEntry: bpcDeleteEntry,
         bpcRenderList: bpcRenderList,
@@ -6775,6 +7081,10 @@
         clearAllPriceOverrides: clearAllPriceOverrides,
         scheduleRecalcOrder: scheduleRecalcOrder,
         recalcOrderFromCache: recalcOrderFromCache,
+        renderBuildStepsTree: renderBuildStepsTree,
+        toggleBuildStepsTree: toggleBuildStepsTree,
+        _bstToggle: _bstToggle,
+        toggleOrderBuildSteps: toggleOrderBuildSteps,
     };
 
     // ── Start ──────────────────────────────────────────────────────

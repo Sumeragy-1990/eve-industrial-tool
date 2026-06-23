@@ -598,6 +598,14 @@
                                 <span class="fw-bold" id="bpTotalVolume">-</span>
                             </div>
                         </div>
+                        <!-- Build Steps Tree (collapsible) -->
+                        <div class="bp-detail-section mt-3" id="bpBuildStepsSection" style="display:none;">
+                            <div class="bp-detail-title" style="cursor:pointer;" onclick="BP.toggleBuildStepsTree()">
+                                <i class="bi bi-chevron-right" id="bpBuildStepsToggle"></i> Build Steps Tree
+                            </div>
+                            <div id="bpBuildStepsTree" style="display:none; margin-top:4px; font-size:0.72rem;">
+                            </div>
+                        </div>
                         <!-- BPO/BPC tables from tree -->
                         <div class="bp-detail-section mt-3">
                             <div class="bp-detail-title">Owned Blueprints</div>
@@ -1056,8 +1064,8 @@
             <button class="btn btn-sm btn-outline-info" onclick="BP.bpcExportCsv()">
                 <i class="bi bi-download"></i> Export CSV
             </button>
-            <button class="btn btn-sm btn-outline-warning" onclick="BP.bpcAutoGenerateFromAssets()">
-                <i class="bi bi-magic"></i> Auto-Gen BPOs
+            <button class="btn btn-sm btn-outline-warning" onclick="BP.bpcRefreshFromAssets()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh from Assets
             </button>
             <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="BP.openStockThresholdModal()">
                 <i class="bi bi-sliders2"></i> Thresholds

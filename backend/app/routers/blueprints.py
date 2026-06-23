@@ -1578,6 +1578,7 @@ class BuildStepNode(BaseModel):
     product_quantity_per_run: int = 1
     runs_needed: int = 1
     me: int = 10
+    te: int = 20
     depth: int = 0
     materials: List[dict] = []
     sub_steps: List["BuildStepNode"] = []
@@ -1590,6 +1591,7 @@ class BuildStepsResponse(BaseModel):
     product_name: Optional[str] = None
     runs: int = 1
     me: int = 10
+    te: int = 20
     steps: List[BuildStepNode] = []
     aggregated_materials: List[dict] = []
     max_depth_reached: int = 0
@@ -1600,6 +1602,7 @@ async def get_build_steps(
     blueprint_type_id: int,
     runs: int = Query(1, ge=1, le=1000, description="Number of runs"),
     me: int = Query(10, ge=0, le=10, description="Material Efficiency level"),
+    te: int = Query(20, ge=0, le=20, description="Time Efficiency level"),
     max_depth: int = Query(5, ge=1, le=10, description="Max recursion depth"),
     db: AsyncSession = Depends(get_session),
 ):
@@ -1621,6 +1624,7 @@ async def get_build_steps(
         bp_type_id: int,
         needed_runs: int,
         step_me: int,
+        step_te: int,
         depth: int,
         visited: set,
     ) -> dict:
@@ -1783,6 +1787,7 @@ async def get_build_steps(
                             child_info["child_bp_type_id"],
                             child_runs_needed,
                             me,  # Use same ME for sub-steps (could use 10 for BPO default)
+                            20,  # Sub-steps default TE (BPO = 20)
                             depth + 1,
                             visited,
                         )
@@ -1797,6 +1802,7 @@ async def get_build_steps(
             "product_quantity_per_run": product_quantity_per_run,
             "runs_needed": needed_runs,
             "me": step_me,
+            "te": step_te,
             "depth": depth,
             "materials": materials,
             "sub_steps": sub_steps,
@@ -1834,7 +1840,7 @@ async def get_build_steps(
         return collector
 
     # ---- Execute ----
-    top_step = await resolve_step(blueprint_type_id, runs, me, 0, set())
+    top_step = await resolve_step(blueprint_type_id, runs, me, te, 0, set())
 
     if not top_step:
         raise HTTPException(
@@ -1863,6 +1869,7 @@ async def get_build_steps(
         "product_name": top_step.get("product_name"),
         "runs": runs,
         "me": me,
+        "te": te,
         "steps": [top_step],
         "aggregated_materials": aggregated_materials,
         "max_depth_reached": max_depth_in_tree(top_step),
