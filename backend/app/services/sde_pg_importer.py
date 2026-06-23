@@ -393,7 +393,7 @@ async def import_sde_pg(
                     continue
                 affected_bp_ids.add(type_id)
                 mat_rows_to_insert.append({
-                    "blueprint_type_id": type_id,
+                    "type_id": type_id,
                     "activity_id": activity_id,
                     "material_type_id": material_type_id,
                     "material_name": type_id_to_name.get(material_type_id, ""),
@@ -407,7 +407,7 @@ async def import_sde_pg(
             from sqlalchemy import delete as sa_delete
             from app.models.sde_blueprint import SDEBlueprintMaterial as _Mat
             await db_session.execute(
-                sa_delete(_Mat).where(_Mat.blueprint_type_id.in_(list(affected_bp_ids)))
+                sa_delete(_Mat).where(_Mat.type_id.in_(list(affected_bp_ids)))
             )
             await db_session.commit()
 
@@ -418,7 +418,9 @@ async def import_sde_pg(
 
         await db_session.commit()
 
-        # Blueprint products
+        # Blueprint products — DELETE+INSERT to avoid duplicates (autoincrement PK)
+        affected_prod_bp_ids = set()
+        prod_rows_to_insert = []
         for row in bp_products_raw:
             try:
                 type_id = _parse_int(row[0])
@@ -427,20 +429,30 @@ async def import_sde_pg(
                 quantity = _parse_int(row[3])
                 if not all([type_id, activity_id, product_type_id, quantity]):
                     continue
-
                 prob = _parse_float(row[4]) if len(row) > 4 else None
-                prod = SDEBlueprintProduct(
-                    type_id=type_id,
-                    activity_id=activity_id,
-                    product_type_id=product_type_id,
-                    product_name=type_id_to_name.get(product_type_id, ""),
-                    quantity=quantity,
-                    probability=prob,
-                )
-                await db_session.merge(prod)
-                stats["products"] += 1
+                affected_prod_bp_ids.add(type_id)
+                prod_rows_to_insert.append({
+                    "type_id": type_id,
+                    "activity_id": activity_id,
+                    "product_type_id": product_type_id,
+                    "product_name": type_id_to_name.get(product_type_id, ""),
+                    "quantity": quantity,
+                    "probability": prob,
+                })
             except Exception:
                 pass
+
+        if affected_prod_bp_ids:
+            from sqlalchemy import delete as sa_delete
+            from app.models.sde_blueprint import SDEBlueprintProduct as _Prod
+            await db_session.execute(
+                sa_delete(_Prod).where(_Prod.type_id.in_(list(affected_prod_bp_ids)))
+            )
+            await db_session.commit()
+
+        for row_data in prod_rows_to_insert:
+            db_session.add(SDEBlueprintProduct(**row_data))
+            stats["products"] += 1
 
         await db_session.commit()
 
