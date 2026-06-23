@@ -16,6 +16,8 @@ import io
 import logging
 from typing import Optional
 
+from sqlalchemy import text
+
 import httpx
 
 from app.database import async_session_factory
@@ -173,10 +175,19 @@ async def main():
         logger.info(f"  Updated: {r.scalar()} blueprints with product info")
 
         # ── 4. Import industryActivityMaterials → sde_blueprint_materials ──
+        # NOTE: Uses TRUNCATE + bulk INSERT instead of db.merge() because the
+        # SDEBlueprintMaterial model has an auto-increment 'id' PK without a
+        # natural-key unique constraint on (type_id, activity_id, material_type_id),
+        # so merge() always inserts new rows, creating duplicates on re-import.
+        # Migration 012 adds the UNIQUE constraint; this code then bulk-inserts
+        # and relies on ON CONFLICT DO NOTHING for idempotency.
         logger.info("=== Importing industryActivityMaterials → sde_blueprint_materials ===")
         mat_raw = await download_csv(TABLE_URLS["industryActivityMaterials"])
         count = 0
         errors = 0
+        # Truncate before re-import to guarantee clean data
+        await db.execute(text("TRUNCATE TABLE sde_blueprint_materials RESTART IDENTITY CASCADE"))
+        values = []
         for row in mat_raw:
             try:
                 type_id = parse_int(row[0])
@@ -185,17 +196,26 @@ async def main():
                 quantity = parse_int(row[3])
                 if not all([type_id, activity_id, material_type_id, quantity]):
                     continue
-                mat = SDEBlueprintMaterial(
-                    type_id=type_id,
-                    activity_id=activity_id,
-                    material_type_id=material_type_id,
-                    material_name=type_id_to_name.get(material_type_id, ""),
-                    quantity=quantity,
+                mat_name = type_id_to_name.get(material_type_id, "")
+                values.append(
+                    f"({type_id},{activity_id},{material_type_id},"
+                    f"'{mat_name.replace(chr(39), chr(39)+chr(39))}',{quantity},false)"
                 )
-                await db.merge(mat)
                 count += 1
             except Exception:
                 errors += 1
+        # Bulk insert via raw SQL for performance (~300K rows)
+        if values:
+            batch_size = 5000
+            for i in range(0, len(values), batch_size):
+                batch = values[i:i + batch_size]
+                sql = (
+                    "INSERT INTO sde_blueprint_materials "
+                    "(type_id, activity_id, material_type_id, material_name, quantity, is_optional) "
+                    "VALUES " + ",".join(batch) + " ON CONFLICT ON CONSTRAINT uq_sde_blueprint_materials "
+                    "DO UPDATE SET quantity = EXCLUDED.quantity, material_name = EXCLUDED.material_name"
+                )
+                await db.execute(text(sql))
         await db.commit()
         logger.info(f"  Imported: {count}, Errors: {errors}")
 
