@@ -68,6 +68,7 @@ TABLE_URLS = {
     "mapConstellations": f"{FUZZWORK_BASE}/mapConstellations.csv",
     "staStations": f"{FUZZWORK_BASE}/staStations.csv",
     "invNames": f"{FUZZWORK_BASE}/invNames.csv",
+    "industryActivities": f"{FUZZWORK_BASE}/industryActivities.csv",
 }
 
 # Category IDs that CCP uses
@@ -331,6 +332,16 @@ async def import_sde_pg(
         bp_materials_raw = await download_table("industryActivityMaterials", TABLE_URLS["industryActivityMaterials"])
         bp_products_raw = await download_table("industryActivityProducts", TABLE_URLS["industryActivityProducts"])
         bp_skills_raw = await download_table("industryActivitySkills", TABLE_URLS["industryActivitySkills"])
+        activities_raw = await download_table("industryActivities", TABLE_URLS["industryActivities"])
+
+        # Build (type_id, activity_id) → time_seconds lookup
+        activity_times: dict = {}
+        for _row in activities_raw:
+            _t = _parse_int(_row[0])
+            _a = _parse_int(_row[1])
+            _s = _parse_int(_row[2])
+            if _t and _a and _s:
+                activity_times[(_t, _a)] = _s
 
         stats["blueprints"] = 0
         stats["materials"] = 0
@@ -354,7 +365,7 @@ async def import_sde_pg(
                     product_name=None,
                     activity_id=1,  # industryBlueprints only contains manufacturing
                     max_production_limit=max_prod,
-                    manufacturing_time=None,
+                    manufacturing_time=activity_times.get((type_id, 1)),
                     tech_level=None,
                     is_reaction=False,
                 )
@@ -434,6 +445,10 @@ async def import_sde_pg(
         await db_session.commit()
 
         # Blueprint skills
+        # FIX: merge() with autoincrement PK always inserts → duplicates after re-import.
+        # Solution: DELETE all existing rows for affected type_ids first, then bulk-INSERT.
+        affected_skill_bp_ids = set()
+        skill_rows_to_insert = []
         for row in bp_skills_raw:
             try:
                 type_id = _parse_int(row[0])
@@ -442,18 +457,28 @@ async def import_sde_pg(
                 level = _parse_int(row[3])
                 if not all([type_id, activity_id, skill_type_id, level]):
                     continue
-
-                skill = SDEBlueprintSkill(
-                    type_id=type_id,
-                    activity_id=activity_id,
-                    skill_type_id=skill_type_id,
-                    skill_name=type_id_to_name.get(skill_type_id, ""),
-                    level=level,
-                )
-                await db_session.merge(skill)
-                stats["skills"] += 1
+                affected_skill_bp_ids.add(type_id)
+                skill_rows_to_insert.append({
+                    "type_id": type_id,
+                    "activity_id": activity_id,
+                    "skill_type_id": skill_type_id,
+                    "skill_name": type_id_to_name.get(skill_type_id, ""),
+                    "level": level,
+                })
             except Exception:
                 pass
+
+        if affected_skill_bp_ids:
+            from sqlalchemy import delete as sa_delete
+            from app.models.sde_blueprint import SDEBlueprintSkill as _Skill
+            await db_session.execute(
+                sa_delete(_Skill).where(_Skill.type_id.in_(list(affected_skill_bp_ids)))
+            )
+            await db_session.commit()
+
+        for row_data in skill_rows_to_insert:
+            db_session.add(SDEBlueprintSkill(**row_data))
+            stats["skills"] += 1
 
         await db_session.commit()
 
