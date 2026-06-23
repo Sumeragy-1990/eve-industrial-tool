@@ -68,7 +68,7 @@ TABLE_URLS = {
     "mapConstellations": f"{FUZZWORK_BASE}/mapConstellations.csv",
     "staStations": f"{FUZZWORK_BASE}/staStations.csv",
     "invNames": f"{FUZZWORK_BASE}/invNames.csv",
-    "industryActivities": f"{FUZZWORK_BASE}/industryActivities.csv",
+    "industryActivity": f"{FUZZWORK_BASE}/industryActivity.csv",
 }
 
 # Category IDs that CCP uses
@@ -332,7 +332,7 @@ async def import_sde_pg(
         bp_materials_raw = await download_table("industryActivityMaterials", TABLE_URLS["industryActivityMaterials"])
         bp_products_raw = await download_table("industryActivityProducts", TABLE_URLS["industryActivityProducts"])
         bp_skills_raw = await download_table("industryActivitySkills", TABLE_URLS["industryActivitySkills"])
-        activities_raw = await download_table("industryActivities", TABLE_URLS["industryActivities"])
+        activities_raw = await download_table("industryActivity", TABLE_URLS["industryActivity"])
 
         # Build (type_id, activity_id) → time_seconds lookup
         activity_times: dict = {}
