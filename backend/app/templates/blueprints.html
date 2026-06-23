@@ -26,8 +26,8 @@
         .bp-toolbar {
             flex-shrink: 0;
             padding: 8px 12px;
-            border-bottom: 1px solid var(--squad-card-border);
-            background: var(--squad-bg2);
+            border-bottom: 1px solid var(--t-card-border);
+            background: var(--t-bg2);
         }
 
         .bp-main {
@@ -42,7 +42,7 @@
             min-width: 240px;
             flex-shrink: 0;
             overflow-y: auto;
-            border-right: 1px solid var(--squad-card-border);
+            border-right: 1px solid var(--t-card-border);
             background: var(--bp-tree-bg);
         }
 
@@ -59,7 +59,7 @@
             min-width: 300px;
             flex-shrink: 0;
             overflow-y: auto;
-            border-left: 1px solid var(--squad-card-border);
+            border-left: 1px solid var(--t-card-border);
             background: var(--bp-cart-bg);
             display: flex;
             flex-direction: column;
@@ -76,7 +76,7 @@
         }
         .bp-resize-handle:hover,
         .bp-resize-handle.active {
-            background: var(--squad-orange);
+            background: var(--t-accent);
         }
 
         /* Toolbar */
@@ -101,13 +101,13 @@
             background: rgba(255,255,255,0.04);
             white-space: nowrap;
         }
-        .bp-stat .stat-label { color: var(--squad-text-dim); }
+        .bp-stat .stat-label { color: var(--t-text-dim); }
         .bp-stat .stat-value { font-weight: 600; }
 
         /* Cart header */
         .bp-cart-header {
             padding: 8px 10px;
-            border-bottom: 1px solid var(--squad-card-border);
+            border-bottom: 1px solid var(--t-card-border);
             flex-shrink: 0;
             background: rgba(255,193,7,0.06);
         }
@@ -120,7 +120,7 @@
 
         .bp-cart-footer {
             flex-shrink: 0;
-            border-top: 1px solid var(--squad-card-border);
+            border-top: 1px solid var(--t-card-border);
             padding: 8px 10px;
         }
 
@@ -153,7 +153,7 @@
         }
         .bp-cart-item-remove {
             cursor: pointer;
-            color: var(--squad-text-dim);
+            color: var(--t-text-dim);
             font-size: 0.8rem;
             padding: 0 3px;
             transition: color 0.15s;
@@ -177,7 +177,7 @@
         .bp-agg-item.deficit { background: rgba(220,53,69,0.08); }
         .bp-agg-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .bp-agg-needed { min-width: 60px; text-align: right; }
-        .bp-agg-owned { min-width: 60px; text-align: right; color: var(--squad-text-dim); }
+        .bp-agg-owned { min-width: 60px; text-align: right; color: var(--t-text-dim); }
 
         /* Detail panel */
         .bp-detail-section {
@@ -186,7 +186,7 @@
         .bp-detail-title {
             font-weight: 600;
             font-size: 0.85rem;
-            color: var(--squad-text-dim);
+            color: var(--t-text-dim);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-bottom: 6px;
@@ -205,12 +205,12 @@
         }
         .bp-material-row:hover { background: rgba(255,255,255,0.03); }
         .bp-material-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .bp-material-base { width: 55px; text-align: right; color: var(--squad-text-dim); font-size: 0.72rem; }
-        .bp-material-adjusted { width: 65px; text-align: right; font-weight: 600; color: var(--squad-orange); }
-        .bp-material-price { width: 70px; text-align: right; color: var(--squad-text-dim); font-size: 0.72rem; font-family: monospace; }
-        .bp-material-total { width: 80px; text-align: right; font-weight: 600; color: var(--squad-gold); font-size: 0.74rem; font-family: monospace; }
+        .bp-material-base { width: 55px; text-align: right; color: var(--t-text-dim); font-size: 0.72rem; }
+        .bp-material-adjusted { width: 65px; text-align: right; font-weight: 600; color: var(--t-accent); }
+        .bp-material-price { width: 70px; text-align: right; color: var(--t-text-dim); font-size: 0.72rem; font-family: monospace; }
+        .bp-material-total { width: 80px; text-align: right; font-weight: 600; color: var(--t-gold); font-size: 0.74rem; font-family: monospace; }
         .bp-material-sell { width: 70px; text-align: right; font-size: 0.72rem; font-family: monospace; color: #28a745; }
-        .bp-material-buy  { width: 70px; text-align: right; font-size: 0.72rem; font-family: monospace; color: var(--squad-text-dim); }
+        .bp-material-buy  { width: 70px; text-align: right; font-size: 0.72rem; font-family: monospace; color: var(--t-text-dim); }
         .bp-material-badge { width: 55px; text-align: center; flex-shrink: 0; }
         .bp-material-badge .badge { font-size: 0.58rem; font-weight: 500; padding: 1px 5px; text-transform: uppercase; letter-spacing: 0.3px; }
 
@@ -218,7 +218,7 @@
         .bp-mat-col-badge { width: 32px; text-align: center; flex-shrink: 0; }
         .bp-mat-col-badge .badge { font-size: 0.55rem; font-weight: 500; padding: 1px 4px; text-transform: uppercase; letter-spacing: 0.3px; }
         .bp-mat-col-sell { width: 65px; text-align: right; font-size: 0.68rem; font-family: monospace; color: #28a745; }
-        .bp-mat-col-buy  { width: 65px; text-align: right; font-size: 0.68rem; font-family: monospace; color: var(--squad-text-dim); }
+        .bp-mat-col-buy  { width: 65px; text-align: right; font-size: 0.68rem; font-family: monospace; color: var(--t-text-dim); }
 
         .bp-material-divider {
             border-top: 1px solid rgba(255,255,255,0.06);
@@ -230,7 +230,7 @@
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: var(--squad-orange);
+            color: var(--t-accent);
             padding: 2px 6px;
             margin-bottom: 4px;
         }
@@ -241,22 +241,22 @@
             gap: 6px;
             padding: 2px 6px;
             font-size: 0.76rem;
-            color: var(--squad-text-dim);
+            color: var(--t-text-dim);
         }
         .bp-skill-name { flex: 1; }
-        .bp-skill-level { color: var(--squad-orange); font-weight: 600; }
+        .bp-skill-level { color: var(--t-accent); font-weight: 600; }
 
         /* Description block */
         .bp-description {
             font-size: 0.78rem;
-            color: var(--squad-text-dim);
+            color: var(--t-text-dim);
             line-height: 1.5;
             max-height: 150px;
             overflow-y: auto;
             padding: 6px 8px;
             background: rgba(255,255,255,0.02);
             border-radius: 4px;
-            border-left: 2px solid var(--squad-orange);
+            border-left: 2px solid var(--t-accent);
         }
 
         /* Add-to-cart button */
@@ -282,8 +282,8 @@
             font-family: 'Courier New', monospace;
             font-size: 0.72rem;
             background: rgba(0,0,0,0.3);
-            color: var(--squad-text-bright);
-            border: 1px solid var(--squad-card-border);
+            color: var(--t-text-bright);
+            border: 1px solid var(--t-card-border);
             resize: vertical;
         }
 
@@ -303,9 +303,9 @@
         }
         @media (max-width: 768px) {
             .bp-main { flex-direction: column; }
-            .bp-col-tree { width: 100%; max-height: 35vh; border-right: none; border-bottom: 1px solid var(--squad-card-border); }
+            .bp-col-tree { width: 100%; max-height: 35vh; border-right: none; border-bottom: 1px solid var(--t-card-border); }
             .bp-col-detail { max-height: 40vh; }
-            .bp-col-cart { width: 100%; max-height: 35vh; border-left: none; border-top: 1px solid var(--squad-card-border); }
+            .bp-col-cart { width: 100%; max-height: 35vh; border-left: none; border-top: 1px solid var(--t-card-border); }
             .bp-resize-handle { display: none; }
         }
 
@@ -340,7 +340,7 @@
 
         /* Stock level warning (#29) */
         .bp-tree-product-sub.bpc.bp-stock-low {
-            border-left: 3px solid var(--squad-coral, #e8604c);
+            border-left: 3px solid var(--t-red);
             background: rgba(232, 96, 76, 0.08);
         }
         .bp-bpc-runs {
@@ -349,7 +349,7 @@
             margin-left: 2px;
         }
         .bp-tree-product-sub.bpc.bp-stock-low .bp-bpc-runs {
-            color: var(--squad-coral, #e8604c);
+            color: var(--t-red);
             font-weight: bold;
         }
 
@@ -381,8 +381,8 @@
             overflow-y: auto;
         }
         .bp-inv-results .bp-detail-section {
-            background: var(--squad-card-bg, rgba(255,255,255,0.03));
-            border: 1px solid var(--squad-card-border, rgba(255,255,255,0.08));
+            background: var(--t-summary-bg);
+            border: 1px solid var(--t-card-border);
             border-radius: 6px;
             padding: 10px;
             margin-bottom: 8px;
@@ -390,7 +390,7 @@
         .bp-inv-results .bp-detail-title {
             font-size: 0.78rem;
             font-weight: 600;
-            color: var(--squad-info, #0dcaf0);
+            color: var(--t-blue, #0dcaf0);
             margin-bottom: 6px;
             border-bottom: 1px solid rgba(255,255,255,0.06);
             padding-bottom: 4px;
@@ -580,7 +580,7 @@
                                 Materials Required
                                 <small class="text-secondary fw-normal" id="bpDetailConfigInfo">(ME 10, 1 run)</small>
                             </div>
-                            <div id="bpMaterialsHeader" class="bp-material-row" style="font-size:0.65rem; color:var(--squad-text-dim); border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:4px; padding-bottom:3px;">
+                            <div id="bpMaterialsHeader" class="bp-material-row" style="font-size:0.65rem; color:var(--t-text-dim); border-bottom:1px solid rgba(255,255,255,0.06); margin-bottom:4px; padding-bottom:3px;">
                                 <span class="bp-material-badge"></span>
                                 <span class="bp-material-name">Name</span>
                                 <span class="bp-material-base">Base</span>
@@ -827,8 +827,8 @@
                             <span class="text-secondary">Facility Tax</span>
                             <span id="bpPlanFacility" class="fw-bold">-</span>
                         </div>
-                        <div class="d-flex justify-content-between small fw-bold mt-1" style="font-size:0.72rem; border-top:1px solid var(--squad-orange); padding-top:3px;">
-                            <span style="color:var(--squad-orange);">Grand Total</span>
+                        <div class="d-flex justify-content-between small fw-bold mt-1" style="font-size:0.72rem; border-top:1px solid var(--t-accent); padding-top:3px;">
+                            <span style="color:var(--t-accent);">Grand Total</span>
                             <span id="bpPlanGrand" style="color:#28a745;">-</span>
                         </div>
                     </div>
@@ -960,6 +960,9 @@
                     <small>Use the Shopper tab to add items to cart, then send to Production Orders.</small></p>
                 </div>
             </div>
+
+            <!-- Build Steps Tree for expanded order item (lazy-loaded) -->
+            <div id="bpOrderBuildStepsContainer" style="display:none; margin-top:8px; font-size:0.78rem;"></div>
 
             <!-- Aggregated Materials Table (MUST be outside bpOrderItemsContainer, otherwise
                  renderOrderDetail() destroys it via innerHTML= assignment) -->

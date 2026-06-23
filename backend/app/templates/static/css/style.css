@@ -1717,7 +1717,7 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     transition: border-color 0.2s;
 }
 .bp-order-header .bp-order-name[contenteditable="true"] {
-    border: 1px dashed var(--squad-orange, #f0ad4e);
+    border: 1px dashed var(--t-accent);
     background: rgba(255, 193, 7, 0.06);
 }
 .bp-order-header .bp-order-meta {
@@ -1889,11 +1889,11 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
 }
 
 #bpBuildCostPanel .form-range::-webkit-slider-thumb {
-    background: var(--squad-orange, #e8883a);
+    background: var(--t-accent);
 }
 
 #bpBuildCostPanel .form-range::-moz-range-thumb {
-    background: var(--squad-orange, #e8883a);
+    background: var(--t-accent);
 }
 
 /* Build Result table */
@@ -2019,7 +2019,7 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--squad-text-bright, #e8e8f0);
+    color: var(--t-text-bright);
 }
 .bp-order-product-row .bp-order-prod-runs {
     text-align: center;
@@ -2353,7 +2353,7 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
 /* BPC Entry Card */
 .bp-bpc-entry {
     background: rgba(255,255,255,0.02);
-    border: 1px solid var(--squad-card-border, rgba(255,255,255,0.08));
+    border: 1px solid var(--t-card-border);
     border-radius: 4px;
     margin-bottom: 4px;
     padding: 6px 8px;
@@ -2382,7 +2382,7 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     overflow: hidden;
     text-overflow: ellipsis;
     flex: 1;
-    color: var(--squad-text-bright, #e8e8f0);
+    color: var(--t-text-bright);
 }
 .bp-bpc-entry-type {
     font-size: 0.55rem;

@@ -4090,7 +4090,7 @@
                 revenueEl = document.createElement("div");
                 revenueEl.id = "bpSummaryRevenue";
                 revenueEl.className = "summary-row revenue-row";
-                revenueEl.innerHTML = '<span class="summary-label" style="font-size:0.65rem;color:var(--squad-text-dim);">→ Verkaufserlös (Jita Sell)</span>' +
+                revenueEl.innerHTML = '<span class="summary-label" style="font-size:0.65rem;color:var(--t-text-dim);">→ Verkaufserlös (Jita Sell)</span>' +
                     '<span class="summary-value" style="font-size:0.65rem;">' + formatIsk(totalProductRevenue) + '</span>';
                 if (profitEl && profitEl.parentNode) {
                     profitEl.parentNode.insertBefore(revenueEl, profitEl.nextSibling);
@@ -6950,7 +6950,7 @@
                     var nameEl = entries[i].querySelector('.bp-bpc-entry-name');
                     if (nameEl && nameEl.textContent.trim() === productName) {
                         entries[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        entries[i].style.outline = '2px solid #0dcaf0';
+                        entries[i].style.outline = '2px solid var(--t-blue, #0dcaf0)';
                         entries[i].style.outlineOffset = '2px';
                         setTimeout(function() { entries[i].style.outline = ''; }, 3000);
                         break;
