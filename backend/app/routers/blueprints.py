@@ -821,6 +821,20 @@ async def get_blueprint_detail(
     item_result = await db.execute(item_sql, {"type_id": product_type_id})
     item_row = item_result.first()
 
+    # Fallback: also check the blueprint item itself (type_id = blueprint_type_id)
+    # Some products may not be in sde_items directly but the BP item is.
+    if not item_row:
+        bp_item_sql = text("""
+            SELECT
+                name, description, group_name, category_name,
+                meta_group_name, tech_level, race_name,
+                volume, mass
+            FROM sde_items
+            WHERE type_id = :type_id
+        """)
+        bp_item_result = await db.execute(bp_item_sql, {"type_id": blueprint_type_id})
+        item_row = bp_item_result.first()
+
     product_name = item_row.name if item_row else str(product_type_id)
     description = item_row.description if item_row else None
     group_name = item_row.group_name if item_row else None
@@ -873,13 +887,23 @@ async def get_blueprint_detail(
     skill_result = await db.execute(skill_sql, {"bp_id": blueprint_type_id})
     skill_rows = skill_result.all()
 
+    # Deduplicate skills: same skill can appear for multiple activities in sde_blueprint_skills
+    # We only query activity_id=1 but Fuzzwork CSV may have duplicates within same activity.
+    seen_skill_ids = {}
     skills = []
     for row in skill_rows:
+        tid = row.skill_type_id
+        if tid not in seen_skill_ids or row.level > seen_skill_ids[tid]:
+            seen_skill_ids[tid] = row.level
+    for tid, level in seen_skill_ids.items():
+        # Find the skill name from our rows
+        name = next((r.skill_name for r in skill_rows if r.skill_type_id == tid), f"Unknown ({tid})")
         skills.append({
-            "skill_type_id": row.skill_type_id,
-            "skill_name": row.skill_name or f"Unknown ({row.skill_type_id})",
-            "level": row.level,
+            "skill_type_id": tid,
+            "skill_name": name or f"Unknown ({tid})",
+            "level": level,
         })
+    skills.sort(key=lambda s: s["skill_name"])
 
     # 5. Get manufacturing time (TE-adjusted)
     base_time = prod_row.manufacturing_time or 0
@@ -1543,6 +1567,10 @@ async def calculate_build_cost(
             "product_buy_price": round(prod_price.get("buy_price_max"), 2) if prod_price.get("buy_price_max") else None,
             "market_price_per_unit": round(market_unit_price, 2) if market_unit_price else None,
             "market_price_source": market_price_source,
+            # Build time with TE applied (seconds)
+            "build_time_seconds": round(
+                (plan["product"]["manufacturing_time"] or 0) * plan["runs"] * (1.0 - 0.02 * min(plan["te"], 20))
+            ) if plan["product"].get("manufacturing_time") else None,
         })
 
     grand_total = grand_total_material + grand_total_facility + grand_total_job

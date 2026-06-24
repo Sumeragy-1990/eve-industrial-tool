@@ -1357,7 +1357,10 @@
             renderMaterials(data, buildStepsData);
 
             // Build Steps Tree (recursive BUY/Build tree)
-            renderBuildStepsTree(buildStepsData);
+            // Build steps tree is now integrated into materials list (inline expandable)
+            // renderBuildStepsTree is kept for backwards compat but section is hidden
+            var treeSection = document.getElementById("bpBuildStepsSection");
+            if (treeSection) treeSection.style.display = "none";
 
             // Skills
             renderSkills(data);
@@ -1433,9 +1436,25 @@
             var catId = m.category_id || (rawEntry && rawEntry.category_id) || null;
             var badgeHtml = matCategoryBadge(catId);
 
-            html += '<div class="bp-material-row">' +
+            // Check if this material has sub-steps (is itself buildable)
+            var matSubStep = null;
+            if (buildStepsData && buildStepsData.steps && buildStepsData.steps[0]) {
+                var topStep = buildStepsData.steps[0];
+                for (var ssi = 0; ssi < (topStep.sub_steps || []).length; ssi++) {
+                    if (topStep.sub_steps[ssi].product_type_id === m.material_type_id) {
+                        matSubStep = topStep.sub_steps[ssi];
+                        break;
+                    }
+                }
+            }
+            var hasSubStep = matSubStep !== null;
+            var rowId = 'bpMatRow_' + m.material_type_id;
+            var subId = 'bpMatSub_' + m.material_type_id;
+
+            html += '<div class="bp-material-row' + (hasSubStep ? ' bp-material-has-sub' : '') + '" id="' + rowId + '">' +
+                (hasSubStep ? '<span class="bp-material-expand" onclick="BP.toggleMatSubStep(' + m.material_type_id + ')" title="Aufklappen: Zwischenbau-Materialien"><i class="bi bi-chevron-right" id="bpMatChev_' + m.material_type_id + '"></i></span>' : '<span class="bp-material-expand"></span>') +
                 badgeHtml +
-                '<span class="bp-material-name">' + escHtml(m.material_name) + '</span>' +
+                '<span class="bp-material-name">' + escHtml(m.material_name) + (hasSubStep ? ' <span class="badge bg-primary" style="font-size:0.55rem;">BAUBBAR</span>' : '') + '</span>' +
                 (m.is_optional ? '<span class="badge bg-secondary" style="font-size:0.6rem;">Opt</span>' : '') +
                 '<span class="bp-material-base">×' + formatNumber(m.base_quantity) + '</span>' +
                 '<span class="bp-material-adjusted">' + formatNumber(m.adjusted_quantity) + '</span>' +
@@ -1444,6 +1463,36 @@
                 '<span class="bp-material-price">' + (unitPrice != null ? formatIsk(unitPrice) : '-') + '</span>' +
                 '<span class="bp-material-total">' + (totalPrice != null ? formatIsk(totalPrice) : '-') + '</span>' +
                 '</div>';
+
+            // Inline sub-step materials (hidden by default, expand on click)
+            if (hasSubStep && matSubStep.materials && matSubStep.materials.length > 0) {
+                html += '<div class="bp-material-sub" id="' + subId + '" style="display:none;">';
+                // Build time for this sub-step
+                var subTime = matSubStep.manufacturing_time || null;
+                if (subTime) {
+                    html += '<div class="bp-sub-buildtime text-secondary small ps-4 pb-1"><i class="bi bi-clock"></i> Bauzeit: ' + formatTime(subTime * matSubStep.runs_needed) + '</div>';
+                }
+                html += '<div class="bp-sub-header ps-4" style="font-size:0.68rem; color:var(--t-text-dim); display:grid; grid-template-columns:50px 1fr 70px 70px; gap:4px; padding:2px 0;">'+
+                    '<span></span><span>Sub-Material</span><span style="text-align:right">Menge</span><span style="text-align:right">Preis</span></div>';
+                for (var smi = 0; smi < matSubStep.materials.length; smi++) {
+                    var sm = matSubStep.materials[smi];
+                    var smRaw = getPrice(sm.material_type_id);
+                    var smPrice = smRaw ? (smRaw.sell_price_min || smRaw.buy_price_max) : null;
+                    var smBadge = matCategoryBadge(sm.category_id);
+                    html += '<div class="bp-material-row ps-4" style="font-size:0.8rem; opacity:0.9;">' +
+                        '<span class="bp-material-expand"></span>' +
+                        smBadge +
+                        '<span class="bp-material-name">' + escHtml(sm.material_name) + '</span>' +
+                        '<span class="bp-material-base"></span>' +
+                        '<span class="bp-material-adjusted">' + formatNumber(sm.total_quantity) + '</span>' +
+                        '<span class="bp-material-sell">' + (smPrice ? formatIsk(smPrice) : '-') + '</span>' +
+                        '<span class="bp-material-buy">-</span>' +
+                        '<span class="bp-material-price">' + (smPrice ? formatIsk(smPrice) : '-') + '</span>' +
+                        '<span class="bp-material-total">' + (smPrice ? formatIsk(smPrice * sm.total_quantity) : '-') + '</span>' +
+                        '</div>';
+                }
+                html += '</div>';
+            }
         }
 
         // Show recursively resolved base minerals ONLY if they differ from direct materials.
@@ -1702,6 +1751,19 @@
         renderOrderDetail();
     }
 
+    /** Toggle inline sub-step materials for a material in the Shopper */
+    function toggleMatSubStep(materialTypeId) {
+        var subEl = document.getElementById("bpMatSub_" + materialTypeId);
+        var chevEl = document.getElementById("bpMatChev_" + materialTypeId);
+        if (!subEl) return;
+        var expanded = subEl.style.display !== "none";
+        subEl.style.display = expanded ? "none" : "block";
+        if (chevEl) {
+            chevEl.style.transform = expanded ? "" : "rotate(90deg)";
+            chevEl.style.transition = "transform 0.15s";
+        }
+    }
+
     function renderSkills(data) {
         if (!data.skills || data.skills.length === 0) {
             document.getElementById("bpSkillsList").innerHTML =
@@ -1729,9 +1791,18 @@
         document.getElementById("bpInfoGroup").textContent = data.group_name || "-";
         document.getElementById("bpInfoTech").textContent = data.tech_level ? "Tech " + data.tech_level : "-";
         document.getElementById("bpInfoRace").textContent = data.race_name || "-";
-        document.getElementById("bpInfoTime").textContent = data.te_adjusted_time_sec
-            ? formatTime(data.te_adjusted_time_sec) : (data.base_manufacturing_time_sec
-            ? formatTime(data.base_manufacturing_time_sec) : "-");
+        // Show BASE time in info (TE-adjusted shown separately as "with current TE")
+        var baseTime = data.base_manufacturing_time_sec;
+        var teTime = data.te_adjusted_time_sec;
+        var timeStr = "-";
+        if (baseTime) {
+            timeStr = formatTime(baseTime);
+            if (teTime && teTime !== baseTime) {
+                timeStr += ' <span class="text-secondary small">(TE: ' + formatTime(teTime) + ')</span>';
+            }
+        }
+        var timeEl = document.getElementById("bpInfoTime");
+        if (timeEl) timeEl.innerHTML = timeStr;
         document.getElementById("bpInfoQty").textContent = data.product_quantity_per_run
             ? "×" + data.product_quantity_per_run : "-";
     }
@@ -3114,7 +3185,12 @@
                         bpc_cost_per_run: bpcCost ? bpcCost.cost_per_run : 0,
                         bpc_amortized_cost: bpcAmortizedCost,
                         bpc_cost_source: bpcCost ? bpcCost.cost_source : null,
+                        build_time_seconds: apiItem.build_time_seconds || null,
                     };
+                    // Also store build time on the order item itself for renderOrderDetail
+                    if (apiItem.build_time_seconds) {
+                        orderItem.build_time_seconds = apiItem.build_time_seconds;
+                    }
 
                     // Include BPC amortized cost in total_cost
                     if (bpcAmortizedCost > 0) {
@@ -3138,7 +3214,18 @@
                             total_cost: mat.total_cost,
                             price_source: mat.price_source,
                             is_optional: mat.is_optional || false,
-                            decision: (mat.unit_price && buyCost < buildCost) ? "buy" : "build",
+                            // Decision: BUY if material is a raw mineral/commodity (no blueprint to build it)
+                            // or if buying is cheaper than building sub-components.
+                            // category_id 4 = Material (minerals, ore) → always buy
+                            // category_id 42 = Asteroid (ore) → always buy
+                            // If no unit_price → assume build (sub-component)
+                            // If unit_price exists and buyCost is less → buy
+                            decision: (function(m, bc, bp) {
+                                var RAW_BUY_CATEGORIES = [4, 42, 43, 53]; // Mineral, Asteroid, Ice, Biochemicals
+                                if (RAW_BUY_CATEGORIES.indexOf(m.category_id) !== -1) return "buy";
+                                if (!m.unit_price) return "build";
+                                return (bc <= bp || bp === 0) ? "build" : "buy";
+                            })(mat, buyCost, buildCost),
                         };
                     });
                 }
@@ -3899,7 +3986,9 @@
             if (item.build_cost) {
                 totalFacilityCost += item.build_cost.facility_cost || 0;
                 totalJobCost += item.build_cost.job_cost || 0;
-                totalMaterialCost += (item.build_cost.build_material_total || 0) + (item.build_cost.buy_material_total || 0);
+                // build_material_total and buy_material_total do not exist in the API response.
+                // The correct field is total_material_cost (returned by /api/blueprints/build-cost).
+                totalMaterialCost += item.build_cost.total_material_cost || 0;
                 
                 // Calculate product revenue from sell price * quantity
                 const sellPrice = item.build_cost.product_sell_price;
@@ -7024,6 +7113,7 @@
         toggleOrderMaterial: toggleOrderMaterial,
         updateOrderItemME: updateOrderItemME,
         updateOrderItemTE: updateOrderItemTE,
+        toggleMatSubStep: toggleMatSubStep,
         bpcAddEntry: bpcAddEntry,
         bpcAutoGenerateFromAssets: bpcAutoGenerateFromAssets,
         bpcRefreshFromAssets: bpcRefreshFromAssets,

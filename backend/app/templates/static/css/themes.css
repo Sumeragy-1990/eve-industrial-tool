@@ -527,3 +527,38 @@ body {
     border: 2px solid rgba(255,255,255,0.2);
     flex-shrink: 0;
 }
+
+/* ── Inline Material Sub-Steps (Shopper) ── */
+.bp-material-expand {
+    width: 16px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--t-text-dim);
+    cursor: pointer;
+    font-size: 0.75rem;
+}
+.bp-material-has-sub {
+    cursor: pointer;
+}
+.bp-material-has-sub:hover {
+    background: var(--t-order-hover);
+}
+.bp-material-sub {
+    margin-left: 8px;
+    border-left: 2px solid var(--t-accent-dim);
+    padding-left: 4px;
+    margin-bottom: 4px;
+}
+.bp-sub-buildtime {
+    color: var(--t-text-dim);
+    font-size: 0.72rem;
+    padding: 2px 0 4px 24px;
+}
+.bp-sub-header {
+    color: var(--t-text-dim);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
