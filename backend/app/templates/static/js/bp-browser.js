@@ -7394,6 +7394,15 @@
         toggleBuildStepsTree: toggleBuildStepsTree,
         _bstToggle: _bstToggle,
         toggleOrderBuildSteps: toggleOrderBuildSteps,
+        openCreateCampaignModal: openCreateCampaignModal,
+        loadCampaigns: loadCampaigns,
+        closeCampaignDetail: closeCampaignDetail,
+        createCampaign: createCampaign,
+        selectCampaign: selectCampaign,
+        syncCampaign: syncCampaign,
+        saveCampaignToStock: saveCampaignToStock,
+        updateCampaignStatus: updateCampaignStatus,
+        deleteCampaign: deleteCampaign,
     };
 
     // ── Start ──────────────────────────────────────────────────────
