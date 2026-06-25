@@ -4000,6 +4000,7 @@
             '<span class="bp-mat-col-buy">Buy</span>' +
             '<span class="bp-mat-col-price">Avg</span>' +
             '<span class="bp-mat-col-total">Total</span>' +
+            '<span style="font-size:0.6rem;color:#777;text-align:center;padding:0 2px;">Override</span>' +
             '</div>';
 
         for (var ki = 0; ki < ids.length; ki++) {
@@ -4018,6 +4019,17 @@
             html += '<span class="bp-mat-col-buy">' + (e.buy_price > 0 ? formatIsk(e.buy_price) : '-') + '</span>';
             html += '<span class="bp-mat-col-price">' + (e.avg_price > 0 ? formatIsk(e.avg_price) : '-') + '</span>';
             html += '<span class="bp-mat-col-total">' + (totalCost > 0 ? formatIsk(totalCost) : '-') + '</span>';
+            var _tid = parseInt(ids[ki]);
+            var _cp = getPrice(_tid);
+            var _ov = (_cp && _cp.override_price != null) ? _cp.override_price : null;
+            html += '<span style="display:flex;align-items:center;gap:2px;">' +
+                '<input type="number" id="bpAggOv_' + _tid + '" min="0" step="0.01"' +
+                ' value="' + (_ov != null ? _ov.toFixed(2) : '') + '"' +
+                ' placeholder="?"' +
+                ' title="Preis-Override setzen (Enter). Leer lassen + Enter zum L?schen."' +
+                ' style="width:60px;font-size:0.62rem;padding:1px 4px;border-radius:3px;border:1px solid rgba(255,255,255,' + (_ov != null ? '0.35' : '0.12') + ');background:' + (_ov != null ? 'rgba(255,193,7,0.12)' : 'transparent') + ';color:' + (_ov != null ? '#ffc107' : '#aaa') + ';"' +
+                ' onkeydown="if(event.key===\'Enter\'){var v=parseFloat(this.value);BP.setAggOverride(' + _tid + ',isNaN(v)||this.value===\'\' ?null:v);}">' +
+                '</span>';
             html += '</div>';
         }
 
@@ -4503,6 +4515,12 @@
      * @param {number} typeId
      * @param {number|null} overridePrice - null to clear the override
      */
+    async function setAggOverride(typeId, price) {
+        await setPriceOverride(typeId, price);
+        renderOrderAggregatedMaterials();
+        scheduleRecalcOrder();
+    }
+
     async function setPriceOverride(typeId, overridePrice) {
         var characterId = window.BP_CHARACTER_ID || 0;
         if (characterId === 0) {
@@ -7386,6 +7404,7 @@
         getEffectivePrice: getEffectivePrice,
         clearPriceCache: clearPriceCache,
         togglePriceOverrides: togglePriceOverrides,
+        setAggOverride: setAggOverride,
         setPriceOverride: setPriceOverride,
         clearAllPriceOverrides: clearAllPriceOverrides,
         scheduleRecalcOrder: scheduleRecalcOrder,

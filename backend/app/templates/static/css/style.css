@@ -2165,13 +2165,13 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     letter-spacing: 0.5px;
 }
 .bp-order-aggregated .bp-order-mat-header {
-    grid-template-columns: 24px 1fr 55px 55px 65px 80px 80px 70px 85px;
+    grid-template-columns: 24px 1fr 55px 55px 65px 80px 80px 70px 85px 95px;
     padding-left: 8px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 4px 4px 0 0;
 }
 .bp-order-aggregated .bp-order-mat-row {
-    grid-template-columns: 24px 1fr 55px 55px 65px 80px 80px 70px 85px;
+    grid-template-columns: 24px 1fr 55px 55px 65px 80px 80px 70px 85px 95px;
     padding-left: 8px;
 }
 .bp-order-aggregated .bp-order-mat-row .bp-mat-col-name {
