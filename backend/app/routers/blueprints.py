@@ -1189,6 +1189,7 @@ class FacilityConfig(BaseModel):
     station_id: Optional[int] = None
     system_id: Optional[int] = None
     rigs: str = "none"
+    security_class: str = "highsec"  # highsec | lowsec | null | wh
     tax_rate: float = 5.0
     # 🌟 NEU: user-configurable system cost index (None = fallback to 0.05)
     system_cost_index: Optional[float] = None
@@ -1242,6 +1243,10 @@ async def calculate_build_cost(
     # ---- 1. Collect all material type IDs first (for batch price lookup) ----
     all_material_ids = set()
     item_plans = []
+
+    _RIG_MAT = {"none": 0.0, "t1": 0.02, "t2": 0.024}
+    _SEC_MULT = {"highsec": 1.0, "lowsec": 1.9, "null": 2.1, "wh": 2.1}
+    rig_mat_bonus = _RIG_MAT.get(facility.rigs, 0.0) * _SEC_MULT.get(facility.security_class, 1.0)
 
     for item in body.cart_items:
         mat_sql = text("""
@@ -1312,10 +1317,8 @@ async def calculate_build_cost(
 
             # Apply ME formula
             base_qty = m.base_quantity or 0
-            adjusted = base_qty
-            if item.me > 0:
-                reduction = 0.1 * item.me / (1 + item.me)
-                adjusted = max(1, math.ceil(base_qty * (1 - reduction)))
+            me_factor = 1.0 - item.me / 100.0
+            adjusted = max(1, math.ceil(base_qty * me_factor * (1.0 - rig_mat_bonus)))
 
             # Deduplicate by material_type_id (SDE product JOIN can cause row multiplication)
             if m.material_type_id in seen_materials:
@@ -1525,9 +1528,8 @@ async def calculate_build_cost(
         eiv = 0.0
         runs = plan["runs"]
         for mat in plan["materials"]:
-            ap = price_map.get(mat["material_type_id"], {}).get("adjusted_price")
-            if ap is None:
-                ap = price_map.get(mat["material_type_id"], {}).get("average_price") or 0.0
+            _pm = price_map.get(mat["material_type_id"], {})
+            ap = _pm.get("adjusted_price") or _pm.get("average_price") or _pm.get("sell_price_min") or 0.0
             eiv += (mat.get("base_quantity") or 0) * runs * ap
 
         # Job-Kosten-Posten (alle EIV-basiert, unabh??ngig von ME/TE/Material-Marktpreisen)
