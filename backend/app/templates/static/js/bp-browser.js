@@ -7181,7 +7181,7 @@
     function isBuildable(m) {
         if (!m) return false;
         if (_RAW_BUY_CATEGORIES.indexOf(m.category_id) !== -1) return false;
-        return !!(m.has_blueprint || m.is_buildable || (m.materials && m.materials.length > 0) || m.buildable);
+        return true;
     }
 
     function matCategoryBadge(categoryId) {
