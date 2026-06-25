@@ -69,6 +69,7 @@ TABLE_URLS = {
     "staStations": f"{FUZZWORK_BASE}/staStations.csv",
     "invNames": f"{FUZZWORK_BASE}/invNames.csv",
     "industryActivity": f"{FUZZWORK_BASE}/industryActivity.csv",
+    "invMetaTypes": f"{FUZZWORK_BASE}/invMetaTypes.csv",
 }
 
 # Category IDs that CCP uses
@@ -216,6 +217,19 @@ async def import_sde_pg(
         if progress_callback:
             progress_callback("Downloading item definitions...", 10)
 
+        meta_types_raw = await download_table("invMetaTypes", TABLE_URLS["invMetaTypes"])
+        type_meta_group: dict[int, int] = {}
+        for row in meta_types_raw:
+            if not row or not row[0].strip().lstrip('-').isdigit():
+                continue
+            try:
+                tid = int(row[0])
+                mgid = int(row[2]) if len(row) > 2 and row[2].strip().lstrip('-').isdigit() else 0
+                if mgid:
+                    type_meta_group[tid] = mgid
+            except (ValueError, IndexError):
+                continue
+
         types_raw = await download_table("invTypes", TABLE_URLS["invTypes"])
         stats["types_imported"] = 0
         stats["types_skipped"] = 0
@@ -249,10 +263,9 @@ async def import_sde_pg(
 
                 group_name = group_names.get(group_id, "")
                 category_name = category_names.get(category_id, "")
-                # NOTE: metaGroupID is NOT in current invTypes.csv (row[13] is soundID).
-                # Could be derived from invMetaTypes table if needed later.
-                meta_group_id = None
-                meta_group_name = ""
+                # metaGroupID aus invMetaTypes ableiten
+                meta_group_id = type_meta_group.get(type_id)
+                meta_group_name = meta_group_names.get(meta_group_id, "") if meta_group_id else ""
 
                 # Race / faction
                 race_id = _parse_int(row[8]) if len(row) > 8 else None
@@ -263,7 +276,13 @@ async def import_sde_pg(
                 capacity = _parse_float(row[6]) if len(row) > 6 else None
                 radius = None  # Not in current Fuzzwork CSV
 
-                tech_level = 1  # Not in current Fuzzwork CSV; derived from metaGroup later
+                # tech_level aus metaGroupID ableiten (2=T2, 14=T3, alles andere=1)
+                if meta_group_id == 2:
+                    tech_level = 2
+                elif meta_group_id == 14:
+                    tech_level = 3
+                else:
+                    tech_level = 1
                 market_group_id = _parse_int(row[11]) if len(row) > 11 else None
                 icon_id = _parse_int(row[12]) if len(row) > 12 else None
                 graphic_id = _parse_int(row[14]) if len(row) > 14 else None

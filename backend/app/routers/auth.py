@@ -150,6 +150,7 @@ oauth.register(
             "esi-industry.read_character_jobs.v1",
             "esi-industry.read_corporation_jobs.v1",
             "esi-corporations.read_corporation_membership.v1",
+            "esi-skills.read_skills.v1",
         ]),
     },
 )

@@ -2055,10 +2055,10 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
 /* Material header row */
 .bp-order-mat-header {
     display: grid;
-    grid-template-columns: 1fr 80px 90px 90px 80px;
+    grid-template-columns: 24px 1fr 70px 85px 85px 75px 85px 55px;
     gap: 4px;
     align-items: center;
-    padding: 3px 8px 3px 30px;
+    padding: 3px 8px 3px 8px;
     font-size: 0.6rem;
     color: #666;
     text-transform: uppercase;
@@ -2070,10 +2070,10 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
 /* Material row */
 .bp-order-mat-row {
     display: grid;
-    grid-template-columns: 1fr 80px 90px 90px 80px;
+    grid-template-columns: 24px 1fr 70px 85px 85px 75px 85px 55px;
     gap: 4px;
     align-items: center;
-    padding: 4px 8px 4px 30px;
+    padding: 4px 8px 4px 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.02);
     transition: background 0.15s ease;
 }
@@ -2092,6 +2092,24 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     font-style: italic;
 }
 
+.bp-order-mat-row .bp-mat-col-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.55rem;
+}
+.bp-order-mat-row .bp-mat-col-sell {
+    text-align: right;
+    font-size: 0.65rem;
+    color: #aaa;
+    font-family: 'Courier New', monospace;
+}
+.bp-order-mat-row .bp-mat-col-buy {
+    text-align: right;
+    font-size: 0.65rem;
+    color: #aaa;
+    font-family: 'Courier New', monospace;
+}
 .bp-order-mat-row .bp-mat-col-name {
     white-space: nowrap;
     overflow: hidden;
@@ -2147,13 +2165,13 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
     letter-spacing: 0.5px;
 }
 .bp-order-aggregated .bp-order-mat-header {
-    grid-template-columns: 1fr 70px 70px 70px 90px 100px;
+    grid-template-columns: 24px 1fr 55px 55px 65px 80px 80px 70px 85px;
     padding-left: 8px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 4px 4px 0 0;
 }
 .bp-order-aggregated .bp-order-mat-row {
-    grid-template-columns: 1fr 70px 70px 70px 90px 100px;
+    grid-template-columns: 24px 1fr 55px 55px 65px 80px 80px 70px 85px;
     padding-left: 8px;
 }
 .bp-order-aggregated .bp-order-mat-row .bp-mat-col-name {

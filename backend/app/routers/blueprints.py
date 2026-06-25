@@ -1351,7 +1351,7 @@ async def calculate_build_cost(
     price_map = {}
     if all_material_ids:
         price_sql = text("""
-            SELECT type_id, sell_price_min, buy_price_max, average_price, type_name
+            SELECT type_id, sell_price_min, buy_price_max, average_price, adjusted_price, type_name
             FROM cached_prices
             WHERE type_id = ANY(:ids)
         """)
@@ -1364,6 +1364,7 @@ async def calculate_build_cost(
                 "sell_price_min": row.sell_price_min,
                 "buy_price_max": row.buy_price_max,
                 "average_price": row.average_price,
+                "adjusted_price": row.adjusted_price,
                 "type_name": row.type_name,
             }
 
@@ -1431,6 +1432,7 @@ async def calculate_build_cost(
     grand_total_material = 0.0
     grand_total_facility = 0.0
     grand_total_job = 0.0
+    grand_eiv = 0.0
     missing_prices = []
 
     for plan in item_plans:
@@ -1492,45 +1494,54 @@ async def calculate_build_cost(
                 "is_optional": mat["is_optional"],
             })
 
-        # ---- Facility cost ----
-        # EVE formula: facility_tax = base_cost * system_index * tax_rate
-        # base_cost = sum(adjusted_material_qty * base_price)
-        # We use total_material_cost as the base
+        # ---- Facility cost (EVE-korrekte Formel) ----
         system_cost_index = facility.system_cost_index / 100.0 if facility.system_cost_index is not None else 0.05
-        facility_tax_rate = facility.tax_rate / 100.0 if facility.tax_rate else 0.05
+        facility_tax_rate = facility.tax_rate / 100.0 if facility.tax_rate else 0.0
+        scc_surcharge_rate = 0.04
+        structure_role_bonus = 0.0  # Default 0; erweiterbar via Facility-Config
 
-        # Time reduction from TE + skills
+        # Zeitreduktion durch TE + Skills (beeinflusst NUR Bauzeit, NICHT Job-Kosten)
         te = plan["te"]
         time_mult = 1.0
         if te > 0:
-            time_mult -= 0.02 * te  # 2% per TE level
+            time_mult -= 0.02 * te  # 2% pro TE-Level
         if skills:
             time_mult *= max(0.01, 1 - 0.04 * skills.industry)
             if skills.advanced_industry:
                 time_mult *= max(0.01, 1 - 0.03 * skills.advanced_industry)
 
-        # Implant time reduction (slot 8 = Gnome K-Implantat -1% time)
+        # Implant-Zeitreduktion (Slot 8 = Gnome K-Implantat -1% Zeit)
         implants = body.implants or {}
         if implants.get("slot8") == "gnome":
             time_mult *= 0.99
 
-        # Implant material reduction (slot 7 = Beancounter Industry -1% material)
+        # Implant-Materialreduktion (Slot 7 = Beancounter Industry -1% Material)
         implant_material_mult = 1.0
         if implants.get("slot7") == "beancounter_industry":
             implant_material_mult = 0.99
         item_total_material *= implant_material_mult
 
-        # Rig multiplier
-        rig_mult = {"t2": 0.798, "t1": 0.90, "none": 1.0}.get(facility.rigs, 1.0)
+        # EIV = runs ?? ??(base_quantity ?? adjusted_price) ??? Basis-Mengen VOR ME, nicht reduziert
+        eiv = 0.0
+        runs = plan["runs"]
+        for mat in plan["materials"]:
+            ap = price_map.get(mat["material_type_id"], {}).get("adjusted_price")
+            if ap is None:
+                ap = price_map.get(mat["material_type_id"], {}).get("average_price") or 0.0
+            eiv += (mat.get("base_quantity") or 0) * runs * ap
 
-        facility_cost = item_total_material * system_cost_index * time_mult * rig_mult * facility_tax_rate
-        # EVE job cost (install fee) is typically ~1-2% of base cost
-        job_cost = item_total_material * 0.015 * facility_tax_rate
+        # Job-Kosten-Posten (alle EIV-basiert, unabh??ngig von ME/TE/Material-Marktpreisen)
+        system_cost_amount = eiv * system_cost_index
+        job_gross_cost = system_cost_amount * (1.0 - structure_role_bonus)
+        facility_tax = eiv * facility_tax_rate
+        scc_surcharge = eiv * scc_surcharge_rate
+        total_job_cost = job_gross_cost + facility_tax + scc_surcharge
 
-        item_total = item_total_material + facility_cost + job_cost
+        item_total = item_total_material + total_job_cost
         grand_total_material += item_total_material
-        grand_total_facility += facility_cost
-        grand_total_job += job_cost
+        grand_total_facility += job_gross_cost + facility_tax
+        grand_total_job += scc_surcharge
+        grand_eiv += eiv
 
         # ---- Market price for product (Buy vs Build) ----
         prod_tid = plan["product"]["product_type_id"]
@@ -1559,8 +1570,14 @@ async def calculate_build_cost(
             "te": plan["te"],
             "materials": material_costs,
             "total_material_cost": round(item_total_material, 2),
-            "facility_cost": round(facility_cost, 2),
-            "job_cost": round(job_cost, 2),
+            "eiv": round(eiv, 2),
+            "system_cost_amount": round(system_cost_amount, 2),
+            "job_gross_cost": round(job_gross_cost, 2),
+            "facility_tax": round(facility_tax, 2),
+            "scc_surcharge": round(scc_surcharge, 2),
+            "total_job_cost": round(total_job_cost, 2),
+            "facility_cost": round(job_gross_cost + facility_tax, 2),
+            "job_cost": round(scc_surcharge, 2),
             "total_cost": round(item_total, 2),
             "cost_per_unit": round(item_total / max(plan["runs"], 1), 2),
             "product_sell_price": round(prod_price.get("sell_price_min"), 2) if prod_price.get("sell_price_min") else None,
@@ -1580,6 +1597,7 @@ async def calculate_build_cost(
         "grand_total_material_cost": round(grand_total_material, 2),
         "grand_total_facility_cost": round(grand_total_facility, 2),
         "grand_total_job_cost": round(grand_total_job, 2),
+        "grand_eiv": round(grand_eiv, 2),
         "grand_total": round(grand_total, 2),
         "pricing": {
             "source": "jita",
