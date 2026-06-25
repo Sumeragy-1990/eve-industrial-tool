@@ -1623,7 +1623,7 @@
                 html += '<div class="d-flex align-items-center gap-1" style="padding:1px 0; font-size:0.68rem;">' +
                     catBadge +
                     '<span>' + escHtml(m.material_name) + '</span>' +
-                    '<span class="text-secondary">×' + formatNumber(m.quantity || 0) + '</span>' +
+                    '<span class="text-secondary">×' + formatNumber(m.total_quantity || m.adjusted_quantity || m.quantity || 0) + '</span>' +
                     '<span class="text-info">' + priceStr + '</span>' +
                     '</div>';
             }
@@ -1746,7 +1746,8 @@
                 } else {
                     var itemMe = item.me != null ? item.me : 10;
                     var itemTe = item.te != null ? item.te : 20;
-                    var resp = await fetch("/api/blueprints/" + bpid + "/build-steps?me=" + itemMe + "&te=" + itemTe);
+                    var itemRuns = item.runs || 1;
+                    var resp = await fetch("/api/blueprints/" + bpid + "/build-steps?me=" + itemMe + "&te=" + itemTe + "&runs=" + itemRuns);
                     if (resp.ok) {
                         var data = await resp.json();
                         item._buildStepsData = data;
@@ -3036,6 +3037,7 @@
                 station_id: null,
                 system_id: null,
                 rigs: config.rigs || "none",
+                security_class: config.security_class || "highsec",
                 tax_rate: config.tax_rate || 5.0,
                 system_cost_index: config.system_cost_index || null,
                 price_source: config.price_source || "jita_sell",
@@ -3200,6 +3202,7 @@
             facility: {
                 facility_type: config.facility_type || "npc_station",
                 rigs: config.rigs || "none",
+                security_class: config.security_class || "highsec",
                 tax_rate: config.tax_rate || 5.0,
                 system_cost_index: config.system_cost_index || null,
                 price_source: config.price_source || "jita_sell",

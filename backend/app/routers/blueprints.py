@@ -1650,6 +1650,7 @@ async def get_build_steps(
     me: int = Query(10, ge=0, le=10, description="Material Efficiency level"),
     te: int = Query(20, ge=0, le=20, description="Time Efficiency level"),
     max_depth: int = Query(5, ge=1, le=10, description="Max recursion depth"),
+    rig_mat_bonus: float = Query(0.0, ge=0.0, le=0.2, description="Combined rig+security material bonus (0-0.2)"),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -1758,11 +1759,11 @@ async def get_build_steps(
                 continue
 
             base_qty = row.base_quantity or 0
-            # Apply ME formula
+            # EVE ME-Formel: me/100 Reduktion + Rig-Materialbonus
             adjusted = base_qty
-            if step_me > 0:
-                reduction = 0.1 * step_me / (1 + step_me)
-                adjusted = max(1, math.ceil(base_qty * (1 - reduction)))
+            if base_qty > 0:
+                me_factor = 1.0 - (step_me / 100.0)
+                adjusted = max(1, math.ceil(base_qty * me_factor * (1.0 - rig_mat_bonus)))
             total_qty = adjusted * needed_runs
 
             # Deduplicate by material_type_id (SDE product JOIN can multiply rows)
