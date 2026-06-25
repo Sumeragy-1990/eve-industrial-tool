@@ -4093,6 +4093,41 @@
     }
 
     /** Render the order summary (bottom sticky bar) */
+    /**
+     * Berechnet die Job-Kosten aller Sub-Steps im Build-Tree (EVE EIV-Formel).
+     * Gibt den Total-Aufschlag fuer alle baubaren Zwischen-Blueprints zurueck.
+     */
+    function calcSubStepJobCosts(buildStepsData, cfg) {
+        if (!buildStepsData || !buildStepsData.steps) return 0;
+        var sysIdx = (cfg && cfg.system_cost_index != null) ? cfg.system_cost_index / 100.0 : 0.05;
+        var taxRate = (cfg && cfg.tax_rate) ? cfg.tax_rate / 100.0 : 0.05;
+        var total = 0;
+        function walkStep(step, isRoot) {
+            if (!step) return;
+            // Sub-Steps haben selbst Job-Kosten wenn sie Build-Nodes sind
+            if (!isRoot && step.sub_steps && step.sub_steps.length > 0) {
+                var stepEiv = 0;
+                for (var mi = 0; mi < (step.materials || []).length; mi++) {
+                    var sm = step.materials[mi];
+                    var pe = getPrice(sm.material_type_id);
+                    var ap = pe ? (pe.adjusted_price || pe.average_price || 0) : 0;
+                    stepEiv += (sm.base_quantity || 0) * (step.runs_needed || 1) * ap;
+                }
+                var jgc = stepEiv * sysIdx;  // job_gross_cost (keine structure_role_bonus hier)
+                var ftax = stepEiv * taxRate;
+                var scc = stepEiv * 0.04;
+                total += jgc + ftax + scc;
+            }
+            for (var si = 0; si < (step.sub_steps || []).length; si++) {
+                walkStep(step.sub_steps[si], false);
+            }
+        }
+        for (var ri = 0; ri < buildStepsData.steps.length; ri++) {
+            walkStep(buildStepsData.steps[ri], true);
+        }
+        return total;
+    }
+
     function renderOrderSummary() {
         const summaryEl = document.getElementById("bpOrderSummary");
         if (!summaryEl) return;
@@ -4114,10 +4149,15 @@
         let totalProductRevenue = 0;  // Revenue from selling finished products
         let totalCostForProfit = 0;   // Total cost for profit calculation
 
+        var _summaryConfig = loadConfig();
         for (const item of order.items) {
             if (item.build_cost) {
                 totalFacilityCost += item.build_cost.facility_cost || 0;
                 totalJobCost += item.build_cost.job_cost || 0;
+                // Sub-Step Job-Kosten hinzurechnen falls Build-Tree geladen
+                if (item._buildStepsData) {
+                    totalJobCost += calcSubStepJobCosts(item._buildStepsData, _summaryConfig);
+                }
                 // build_material_total and buy_material_total do not exist in the API response.
                 // The correct field is total_material_cost (returned by /api/blueprints/build-cost).
                 totalMaterialCost += item.build_cost.total_material_cost || 0;
