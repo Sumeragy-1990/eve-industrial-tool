@@ -1559,8 +1559,6 @@
     /**
      * Render a single build step node (shared between Shopper and Orders).
      */
-    var _bstMeOverrides = {};  // key=bp_type_id+'_'+depth -> {me, te}
-
     function _renderBuildStepNode(step, depth) {
         var isBuy = !step.sub_steps || step.sub_steps.length === 0;
         var badgeClass = isBuy ? "bg-warning text-dark" : "bg-primary";
@@ -1587,22 +1585,6 @@
 
         // Badge
         html += '<span class="badge ' + badgeClass + '" style="font-size:0.6rem;">' + badgeText + '</span>';
-
-        // ME/PE-Inputs fuer Build-Nodes
-        if (!isBuy && step.blueprint_type_id) {
-            var _bstKey = (step.blueprint_type_id || 0) + '_' + depth;
-            var _bstOvr = _bstMeOverrides[_bstKey] || {};
-            var _bstMe = _bstOvr.me != null ? _bstOvr.me : (step.me != null ? step.me : 10);
-            var _bstTe = _bstOvr.te != null ? _bstOvr.te : (step.te != null ? step.te : 20);
-            html += '<span style="font-size:0.62rem; margin-left:4px;" onclick="event.stopPropagation()">' +
-                '<span class="text-muted">ME:</span><input type="number" min="0" max="10" value="' + _bstMe + '"' +
-                ' style="width:32px; font-size:0.62rem; background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:3px; color:inherit; text-align:center; padding:0 2px;"' +
-                ' onchange="event.stopPropagation(); _bstMeOverrides[\'' + _bstKey + '\'] = _bstMeOverrides[\'' + _bstKey + '\'] || {}; _bstMeOverrides[\'' + _bstKey + '\'].me = parseInt(this.value)||0;">' +
-                ' <span class="text-muted">PE:</span><input type="number" min="0" max="20" value="' + _bstTe + '"' +
-                ' style="width:32px; font-size:0.62rem; background:transparent; border:1px solid rgba(255,255,255,0.2); border-radius:3px; color:inherit; text-align:center; padding:0 2px;"' +
-                ' onchange="event.stopPropagation(); _bstMeOverrides[\'' + _bstKey + '\'] = _bstMeOverrides[\'' + _bstKey + '\'] || {}; _bstMeOverrides[\'' + _bstKey + '\'].te = parseInt(this.value)||0;">' +
-                '</span>';
-        }
 
         // Materials summary
         if (step.materials && step.materials.length > 0) {
@@ -1773,18 +1755,6 @@
     function toggleMatSubStep(materialTypeId) {
         var subEl = document.getElementById("bpMatSub_" + materialTypeId);
         var chevEl = document.getElementById("bpMatChev_" + materialTypeId);
-        if (!subEl) return;
-        var expanded = subEl.style.display !== "none";
-        subEl.style.display = expanded ? "none" : "block";
-        if (chevEl) {
-            chevEl.style.transform = expanded ? "" : "rotate(90deg)";
-            chevEl.style.transition = "transform 0.15s";
-        }
-    }
-
-    function toggleOrderMatSubStep(oi, ii, mi) {
-        var subEl = document.getElementById('bpOrdSub_' + ii + '_' + mi);
-        var chevEl = document.getElementById('bpOrdChev_' + ii + '_' + mi);
         if (!subEl) return;
         var expanded = subEl.style.display !== "none";
         subEl.style.display = expanded ? "none" : "block";
@@ -2086,14 +2056,10 @@
         html += '<input type="number" class="form-control form-control-sm" id="bpInvCostIndex" value="' + (_inventionCostIndex || 0.01) + '" min="0" max="1" step="0.01" onchange="BP.onInventionParamChange()">';
         html += '<button class="btn btn-outline-secondary btn-sm" type="button" onclick="BP.showInventionStationSelector()" title="Select station to look up cost index"><i class="bi bi-search"></i></button>';
         html += '</div></div>';
-        html += '<div class="col-4"><label class="form-label mb-0 text-muted">Custom Install Fee</label>';
-        html += '<input type="number" class="form-control form-control-sm" id="bpInvCustomFee"' +
-            ' placeholder="auto" min="0" step="1000"' +
-            ' value="' + (_inventionCustomInstallFee != null ? Math.round(_inventionCustomInstallFee) : '') + '"' +
-            ' onchange="BP.onInventionParamChange()" style="font-size:0.7rem;" title="Leer = automatisch berechnet"></div>';
+        html += '<div class="col-4"><label class="form-label mb-0 text-muted">Base Install Fee</label>';
+        html += '<input type="text" class="form-control form-control-sm" value="250,000 ISK" readonly disabled></div>';
         html += '</div>';
-        var _autoInstallFee = 250000 * (1 + (_inventionCostIndex || 0.01) * 100);
-        var installFee = (_inventionCustomInstallFee != null) ? _inventionCustomInstallFee : _autoInstallFee;
+        var installFee = 250000 * (1 + (_inventionCostIndex || 0.01) * 100);
         html += '<div class="mt-1 text-end small text-muted">Estimated install fee: <span class="text-info" id="bpInvInstallFee">' + formatNumber(installFee) + ' ISK</span></div>';
         html += '</div>';
 
@@ -2114,7 +2080,6 @@
         if (_inventionCharacterId) {
             html += '<div class="mt-1 d-flex gap-1">';
             html += '<button class="btn btn-sm btn-outline-info" onclick="BP.syncInventionSkills()" style="font-size:0.65rem;"><i class="bi bi-arrow-repeat"></i> Sync Skills</button>';
-            html += ' <span id="bpInvSyncStatus" style="font-size:0.65rem;"></span>';
             html += '<span class="text-muted small align-self-center">Skills from ESI</span>';
             html += '</div>';
         }
@@ -2160,7 +2125,6 @@
 
     var _inventionDecryptor = null;
     var _inventionCostIndex = 0.01;
-    var _inventionCustomInstallFee = null;
     var _inventionStationSelectorActive = false;
     var _inventionCharacterId = null;
     var _inventionCharSkills = {};
@@ -2261,7 +2225,7 @@
         html += '<div class="row g-2" style="font-size:0.72rem;">';
         html += '<div class="col-4"><span class="text-muted">Success Prob.</span><br><span class="text-success">' + (probability * 100).toFixed(1) + '%</span></div>';
         html += '<div class="col-4"><span class="text-muted">T2 BPC Runs</span><br><span class="text-info">' + t2Runs + '</span></div>';
-        html += '<div class="col-4"><span class="text-muted">T2 ME/TE</span><br><span class="text-info">' + (2 + decryptorMe) + '/' + (4 + decryptorTe) + '</span></div>';
+        html += '<div class="col-4"><span class="text-muted">T2 ME/TE</span><br><span class="text-info">' + decryptorMe + '/' + decryptorTe + '</span></div>';
         html += '</div>';
 
         html += '<hr class="my-2" style="border-color:rgba(255,255,255,0.1);">';
@@ -2270,10 +2234,6 @@
         html += '<div class="col-6"><span class="text-muted">Expected Cost/Success</span><br><span class="text-warning fw-bold">' + formatNumber(expectedCost) + ' ISK</span></div>';
         html += '<div class="col-6"><span class="text-muted">Cost per T2 Run</span><br><span class="text-info fw-bold">' + formatNumber(costPerT2Run) + ' ISK</span></div>';
         html += '</div>';
-        html += '<div class="mt-2 text-center">' +
-            '<button class="btn btn-sm btn-outline-success" onclick="BP.openCreateCampaignModal()" title="Diesen Job in eine Invention Campaign speichern">' +
-            '<i class="bi bi-plus-circle"></i> In Campaign speichern</button>' +
-            '</div>';
 
         return html;
     }
@@ -2309,7 +2269,6 @@
 
         var btn = document.querySelector('button[onclick="BP.syncInventionSkills()"]');
         if (btn) btn.disabled = true;
-        showInventionSyncMsg("Synchronisiere???", "info");
 
         try {
             await apiPost("/skills/sync/" + _inventionCharacterId, null);
@@ -2318,32 +2277,11 @@
             if (_inventionData && _inventionData.has_invention) {
                 renderInvention(_inventionData, _inventionData.blueprint.type_id);
             }
-            showInventionSyncMsg(Object.keys(_inventionCharSkills).length + " Skills synchronisiert", "ok");
         } catch (e) {
-            var msg = String((e && e.message) || e);
-            if (msg.indexOf("read_skills") !== -1 || msg.indexOf("401") !== -1) {
-                showInventionSyncMsg(
-                    'Skill-Zugriff nicht freigegeben. Bitte neu einloggen: ' +
-                    '<a href="/auth/login">EVE-SSO Login</a> ' +
-                    '(Scope esi-skills.read_skills.v1).', "scope");
-            } else {
-                showInventionSyncMsg("Sync fehlgeschlagen: " + msg, "error");
-            }
             console.warn("Failed to sync invention skills:", e);
         } finally {
             if (btn) btn.disabled = false;
         }
-    }
-
-    function showInventionSyncMsg(text, kind) {
-        var el = document.getElementById("bpInvSyncStatus");
-        if (!el) return;
-        el.innerHTML = text;
-        el.style.color =
-            kind === "ok"    ? "var(--t-success, #198754)" :
-            kind === "scope" ? "var(--t-warning, #e0a800)" :
-            kind === "error" ? "var(--t-danger, #dc3545)"  :
-                               "var(--t-text-muted, #888)";
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -3743,31 +3681,10 @@
                     const isBuy = m.decision === 'buy';
                     const badgeHtml = matCategoryBadge(m.category_id);
 
-                    // Sub-Step aus Build-Steps-Daten suchen (falls geladen)
-                    var _ordSubStep = null;
-                    if (item._buildStepsData && item._buildStepsData.steps && item._buildStepsData.steps[0]) {
-                        var _topStep = item._buildStepsData.steps[0];
-                        for (var _ssi = 0; _ssi < (_topStep.sub_steps || []).length; _ssi++) {
-                            if (_topStep.sub_steps[_ssi].product_type_id === m.material_type_id) {
-                                _ordSubStep = _topStep.sub_steps[_ssi];
-                                break;
-                            }
-                        }
-                    }
-                    var _hasOrdSub = _ordSubStep !== null && isBuildable(m);
-                    var _ordSubId = 'bpOrdSub_' + i + '_' + mi;
-                    var _ordChevId = 'bpOrdChev_' + i + '_' + mi;
-
                     html += '<div class="bp-order-mat-row' + (isBuild ? ' mat-build' : ' mat-buy') + '">';
 
-                    // Badge + optionaler Aufklapp-Chevron
-                    html += '<span class="bp-mat-col-badge">' +
-                        (_hasOrdSub
-                            ? '<i class="bi bi-chevron-right" id="' + _ordChevId + '"' +
-                              ' onclick="event.stopPropagation();BP.toggleOrderMatSubStep(' + _activeOrderIndex + ',' + i + ',' + mi + ')"' +
-                              ' style="cursor:pointer;font-size:0.65rem;margin-right:1px;" title="Sub-Materialien aufklappen"></i>'
-                            : '') +
-                        badgeHtml + '</span>';
+                    // Badge
+                    html += '<span class="bp-mat-col-badge">' + badgeHtml + '</span>';
 
                     // Name
                     html += '<span class="bp-mat-col-name" title="' + escHtml(m.material_name) + '">' +
@@ -3782,21 +3699,16 @@
                         var cacheEntry = getPrice(m.material_type_id);
                         if (cacheEntry && cacheEntry.sell_price_min != null) sellPrice = cacheEntry.sell_price_min;
                     }
+                    html += '<span class="bp-mat-col-sell">' +
+                        (sellPrice != null && sellPrice > 0 ? formatIsk(sellPrice) : '-') + '</span>';
+
                     // Buy price per unit
                     var buyPrice = (m.buy_price_per_unit != null) ? m.buy_price_per_unit : null;
                     if (buyPrice === null) {
                         var cacheEntry2 = getPrice(m.material_type_id);
                         if (cacheEntry2 && cacheEntry2.buy_price_max != null) buyPrice = cacheEntry2.buy_price_max;
                     }
-                    // G??nstigste Markt-Option hervorheben
-                    var _cheapSty = 'color:var(--t-success,#198754);font-weight:600;';
-                    var _sellTot = (sellPrice != null && sellPrice > 0) ? sellPrice * m.total_quantity : Infinity;
-                    var _buyTot  = (buyPrice  != null && buyPrice  > 0) ? buyPrice  * m.total_quantity : Infinity;
-                    var _sellCheap = _sellTot <= _buyTot && _sellTot < Infinity;
-                    var _buyCheap  = _buyTot  <  _sellTot && _buyTot  < Infinity;
-                    html += '<span class="bp-mat-col-sell"' + (_sellCheap ? ' style="' + _cheapSty + '"' : '') + '>' +
-                        (sellPrice != null && sellPrice > 0 ? formatIsk(sellPrice) : '-') + '</span>';
-                    html += '<span class="bp-mat-col-buy"' + (_buyCheap ? ' style="' + _cheapSty + '"' : '') + '>' +
+                    html += '<span class="bp-mat-col-buy">' +
                         (buyPrice != null && buyPrice > 0 ? formatIsk(buyPrice) : '-') + '</span>';
 
                     // Effective price
@@ -3813,12 +3725,9 @@
                         '</span>';
 
                     // Toggle button
-                    var _canBuild = isBuildable(m);
                     html += '<span class="bp-mat-col-action">' +
-                        '<button class="btn btn-sm bp-btn-toggle ' + (isBuild && _canBuild ? 'btn-build' : 'btn-outline-secondary') +
-                        '"' + (_canBuild
-                            ? ' onclick="event.stopPropagation();BP.toggleOrderMaterial(' + _activeOrderIndex + ',' + i + ',' + mi + ')"'
-                            : ' disabled title="Rohstoff ? nicht baubar" style="opacity:0.35;cursor:not-allowed;"') + '>' +
+                        '<button class="btn btn-sm bp-btn-toggle ' + (isBuild ? 'btn-build' : 'btn-outline-secondary') +
+                        '" onclick="event.stopPropagation();BP.toggleOrderMaterial(' + _activeOrderIndex + ',' + i + ',' + mi + ')" title="Build this material">' +
                         'B</button>' +
                         '<button class="btn btn-sm bp-btn-toggle ' + (isBuy ? 'btn-buy' : 'btn-outline-secondary') +
                         '" onclick="event.stopPropagation();BP.toggleOrderMaterial(' + _activeOrderIndex + ',' + i + ',' + mi + ',true)" title="Buy this material">' +
@@ -3826,44 +3735,6 @@
                         '</span>';
 
                     html += '</div>'; // /mat-row
-
-                    // Inline Sub-Material-Liste (ausgeklappt per Chevron)
-                    if (_hasOrdSub && _ordSubStep && _ordSubStep.materials && _ordSubStep.materials.length > 0) {
-                        html += '<div id="' + _ordSubId + '" style="display:none;padding-left:36px;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.04);">';
-                        html += '<div style="font-size:0.6rem;color:var(--t-text-dim);display:grid;grid-template-columns:24px 1fr 70px 80px;gap:4px;padding:2px 4px;text-transform:uppercase;letter-spacing:0.05em;">' +
-                            '<span></span><span>Sub-Material</span><span style="text-align:right">Qty</span><span style="text-align:right">Preis</span></div>';
-                        for (var _smi2 = 0; _smi2 < _ordSubStep.materials.length; _smi2++) {
-                            var _sm2 = _ordSubStep.materials[_smi2];
-                            var _smPi = getEffectivePrice(_sm2.material_type_id);
-                            html += '<div style="font-size:0.72rem;display:grid;grid-template-columns:24px 1fr 70px 80px;gap:4px;padding:2px 4px;align-items:center;">' +
-                                '<span style="text-align:center;">' + matCategoryBadge(_sm2.category_id) + '</span>' +
-                                '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(_sm2.material_name) + '">' + escHtml(_sm2.material_name) + '</span>' +
-                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">?' + formatNumber(_sm2.total_quantity) + '</span>' +
-                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">' + (_smPi.price ? formatIsk(_smPi.price) : '-') + '</span>' +
-                                '</div>';
-                        }
-                        html += '</div>';
-                    }
-                }
-                // ?????? Summenzeile unter der Material-Liste ??????
-                if (item.materials && item.materials.length > 0) {
-                    var _totSell = 0, _totBuy = 0, _totCurr = 0;
-                    for (var _si = 0; _si < item.materials.length; _si++) {
-                        var _sm = item.materials[_si];
-                        _totSell += (_sm.sell_price_per_unit || 0) * _sm.total_quantity;
-                        _totBuy  += (_sm.buy_price_per_unit  || 0) * _sm.total_quantity;
-                        _totCurr += _sm.total_cost || ((getEffectivePrice(_sm.material_type_id).price || 0) * _sm.total_quantity);
-                    }
-                    html += '<div class="bp-order-mat-row" style="border-top:1px solid rgba(255,255,255,0.14);font-weight:600;background:rgba(255,255,255,0.04);margin-top:2px;">' +
-                        '<span class="bp-mat-col-badge"></span>' +
-                        '<span class="bp-mat-col-name">Gesamt</span>' +
-                        '<span class="bp-mat-col-qty"></span>' +
-                        '<span class="bp-mat-col-sell">' + (_totSell > 0 ? formatIsk(_totSell) : '-') + '</span>' +
-                        '<span class="bp-mat-col-buy">' + (_totBuy > 0 ? formatIsk(_totBuy) : '-') + '</span>' +
-                        '<span class="bp-mat-col-price"></span>' +
-                        '<span class="bp-mat-col-total">' + (_totCurr > 0 ? formatIsk(_totCurr) : '-') + '</span>' +
-                        '<span class="bp-mat-col-action"></span>' +
-                        '</div>';
                 }
             } else if (expanded && !hasMaterials) {
                 html += '<div class="bp-order-mat-row mat-no-materials">' +
@@ -5272,27 +5143,6 @@
     }
 
     /** Render the config bar in the Production Orders tab */
-    /** Preset direkt anwenden (ohne Edit-Modal) */
-    function applyStationPresetDirect(key) {
-        if (!key) return;
-        var presets = loadStationPresets();
-        var p = presets[key];
-        if (!p) return;
-        var c = loadConfig();
-        c.facility_type  = p.facility_type  || c.facility_type;
-        c.station_id     = p.station_id     != null ? p.station_id : c.station_id;
-        c.station_name   = p.station_name   || c.station_name;
-        c.system_id      = p.system_id      != null ? p.system_id : c.system_id;
-        c.system_name    = p.system_name    || c.system_name;
-        c.rigs           = p.rigs           || c.rigs;
-        c.tax_rate       = p.tax_rate       != null ? p.tax_rate : c.tax_rate;
-        c.system_cost_index = p.system_cost_index != null ? p.system_cost_index : c.system_cost_index;
-        saveConfig();
-        renderConfigBar();
-        // Aktive Order-Kosten neu berechnen falls vorhanden
-        if (typeof refreshOrderCosts === "function") refreshOrderCosts();
-    }
-
     function renderConfigBar() {
         const bar = document.getElementById("bpConfigBarBody");
         if (!bar) return;
@@ -5337,19 +5187,7 @@
         if (c.implant_slot10) implantParts.push(implantIcons.slot10 + ' ' + (implantLabels[c.implant_slot10] || c.implant_slot10));
         var implantStr = implantParts.length > 0 ? implantParts.join(" / ") : '<span class="text-secondary">None</span>';
 
-        // Preset-Dropdown fuer Direktauswahl
-        var presets = loadStationPresets();
-        var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
-        for (var pk in presets) {
-            var isActive = (c.station_name === presets[pk].station_name && c.rigs === presets[pk].rigs);
-            presetOptions += '<option value="' + escHtml(pk) + '"' + (isActive ? ' selected' : '') + '>' + escHtml(pk) + '</option>';
-        }
-        var presetBar = '<div class="bp-config-bar-line" style="gap:0.5rem;">' +
-            '<span style="font-size:0.7rem;color:var(--t-text-muted,#888);">Preset:</span>' +
-            '<select class="bp-price-source-select" style="min-width:140px;" onchange="BP.applyStationPresetDirect(this.value)">' + presetOptions + '</select>' +
-            '</div>';
-
-        bar.innerHTML = presetBar +
+        bar.innerHTML =
             '<div class="bp-config-bar-line">' +
                 '<span class="bp-config-station" title="Station: ' + escHtml(stationDisplay) + '">' +
                     '<i class="bi bi-geo-alt"></i> ' + escHtml(stationDisplay) + '</span>' +
@@ -7133,18 +6971,12 @@
      * @param {number|null} categoryId
      * @returns {string}
      */
-    var _RAW_BUY_CATEGORIES = [4, 42, 43, 53]; // Mineral, Asteroid, Ice, Biochemicals
-
-    function isBuildable(m) {
-        if (!m) return false;
-        if (_RAW_BUY_CATEGORIES.indexOf(m.category_id) !== -1) return false;
-        return !!(m.has_blueprint || m.is_buildable || (m.materials && m.materials.length > 0) || m.buildable);
-    }
-
     function matCategoryBadge(categoryId) {
         switch (categoryId) {
-            case 4:  return '<span class="badge bg-warning text-dark" title="Mineral/Material">M</span>';
-            case 43: return '<span class="badge bg-primary" title="Planetary Commodity">P</span>';
+            case 4:  return '<span class="badge bg-warning text-dark" title="Mineral">M</span>';
+            case 5:  return '<span class="badge bg-primary" title="Planetary">P</span>';
+            case 17: return '<span class="badge bg-purple" style="background:#9b59b6;" title="Reaction">R</span>';
+            case 18: return '<span class="badge bg-info text-dark" style="background:#20c997;" title="Material (Tech)">T</span>';
             default: return '';
         }
     }
@@ -7266,7 +7098,6 @@
         importOrderFromJson: importOrderFromJson,
         editOrderName: editOrderName,
         renderConfigBar: renderConfigBar,
-        applyStationPresetDirect: applyStationPresetDirect,
         renderOrderTargetDropdown: renderOrderTargetDropdown,
         openConfigModal: openConfigModal,
         applyConfigPanel: applyConfigPanel,
@@ -7283,7 +7114,6 @@
         updateOrderItemME: updateOrderItemME,
         updateOrderItemTE: updateOrderItemTE,
         toggleMatSubStep: toggleMatSubStep,
-        toggleOrderMatSubStep: toggleOrderMatSubStep,
         bpcAddEntry: bpcAddEntry,
         bpcAutoGenerateFromAssets: bpcAutoGenerateFromAssets,
         bpcRefreshFromAssets: bpcRefreshFromAssets,
@@ -7316,13 +7146,7 @@
             var ciEl = document.getElementById("bpInvCostIndex");
             if (ciEl) {
                 _inventionCostIndex = parseFloat(ciEl.value) || 0.01;
-            }
-            var customFeeEl = document.getElementById("bpInvCustomFee");
-            var customFeeVal = customFeeEl ? parseFloat(customFeeEl.value) : NaN;
-            _inventionCustomInstallFee = isNaN(customFeeVal) || customFeeEl.value === "" ? null : customFeeVal;
-            if (true) {
-                var _aFee = 250000 * (1 + _inventionCostIndex * 100);
-                var installFee = (_inventionCustomInstallFee != null) ? _inventionCustomInstallFee : _aFee;
+                var installFee = 250000 * (1 + _inventionCostIndex * 100);
                 var feeEl = document.getElementById("bpInvInstallFee");
                 if (feeEl) feeEl.textContent = formatNumber(installFee) + " ISK";
                 if (_inventionData && _inventionData.has_invention) {

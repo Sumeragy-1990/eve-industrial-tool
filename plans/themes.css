@@ -370,16 +370,27 @@ body {
 
 /* ── Material rows ── */
 .bp-order-mat-header {
+    display: grid;
+    grid-template-columns: 1fr 80px 90px 90px 50px 80px;
+    gap: 4px;
+    padding: 4px 10px 4px 30px;
     font-size: 0.72rem;
     color: var(--t-text-dim);
     border-bottom: 1px solid var(--t-card-border);
+    margin-bottom: 2px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
 
 .bp-order-mat-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 90px 90px 50px 80px;
+    gap: 4px;
+    padding: 4px 10px 4px 30px;
     font-size: 0.82rem;
     border-radius: 4px;
+    margin-bottom: 2px;
+    align-items: center;
     transition: background 0.1s;
 }
 .bp-order-mat-row.mat-build { background: var(--t-mat-build-bg); }
