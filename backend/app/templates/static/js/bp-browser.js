@@ -12,7 +12,7 @@
  */
 
 (function () {
-    var _BP_SCRIPT_VERSION = '6de9570+live-diag';
+    var _BP_SCRIPT_VERSION = '340e6e1+decision-fix';
     "use strict";
 
     // ═══════════════════════════════════════════════════════════════
@@ -4645,9 +4645,9 @@
             return;
         }
 
-        // ── Live Diagnostic Banner ──
-        // Shows API fetch status, JS version, and material debug data
-        // Build a text version first for the copy button
+        // ── Diagnostic Banner (DEACTIVATED) ──
+        // Set _DIAG_ENABLED = true below to re-enable
+        if (typeof window._BP_DIAG_ENABLED !== 'undefined' && window._BP_DIAG_ENABLED) {
         var _diagTextLines = [];
         _diagTextLines.push('=== BP-Browser Diagnostic ===');
         _diagTextLines.push('JS Version: ' + (_BP_SCRIPT_VERSION || '?'));
@@ -4669,9 +4669,7 @@
                 }
             }
         }
-        // ---- Add aggregation totals directly to diagnostic ----
-        // Track totals per material type for the diagnostic
-        var _diagQtySource = {};  // type_id -> { fromDirect:0, fromSubMats:0, items:[] }
+        var _diagQtySource = {};
         for (var _diagi = 0; _diagi < order.items.length; _diagi++) {
             var _diagItem = order.items[_diagi];
             if (!_diagItem.materials) continue;
@@ -4683,7 +4681,6 @@
                 if (_diagm.decision === 'buy') {
                     _diagQtySource[_diagId].fromDirect += _diagm.total_quantity || 0;
                 }
-                // For "build" materials, check sub-materials
                 if (_diagm.decision === 'build' && _diagItem._buildStepsData) {
                     var _diagSubs = _getBuildSubMaterials(_diagItem, _diagId, _diagm.total_quantity);
                     if (_diagSubs.length > 0) {
@@ -4718,7 +4715,7 @@
             _diagTextLines.push('  QTY=' + _tc.total + ' type=' + _tc.typeId + ' (direct=' + _tc.direct + ', sub=' + _tc.sub + ') items=[' + _tc.items + ']');
         }
         var _diagClipText = _diagTextLines.join('\n');
-        window.BP_DIAG_TEXT = _diagClipText; // make accessible for copy button
+        window.BP_DIAG_TEXT = _diagClipText;
 
         var _diagHtml = '<div class="bp-diagnostic-banner" style="font-size:0.6rem;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:5px 8px;margin-bottom:6px;">';
         _diagHtml += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:3px;">';
@@ -4741,12 +4738,12 @@
         _diagHtml += ' ';
         _diagHtml += '<button onclick="var btn=this;btn.textContent=\'⏳ Sende...\';fetch(\'/api/blueprints/debug-diag\',{method:\'POST\',headers:{\'Content-Type\':\'application/json\'},credentials:\'include\',body:JSON.stringify({diag:BP_DIAG_TEXT})}).then(function(r){if(r.ok){btn.textContent=\'✅ Gesendet!\';setTimeout(function(){btn.textContent=\'📡 Senden\';},3000)}else{btn.textContent=\'❌ Fehler (HTTP \'+r.status+\')\';setTimeout(function(){btn.textContent=\'📡 Senden\';},5000)}}).catch(function(){btn.textContent=\'❌ Netzwerkfehler\';setTimeout(function(){btn.textContent=\'📡 Senden\';},5000)});" style="font-size:0.55rem;padding:1px 6px;background:#0d6efd;color:#fff;border:1px solid #0a58ca;border-radius:3px;cursor:pointer;">📡 Senden</button>';
         _diagHtml += '</div>';
-        // Debug: Trace material quantities (immer sichtbar) + store text for copy button
-        var _diagLinesForHtml = _diagTextLines.slice(1); // skip header for HTML
+        var _diagLinesForHtml = _diagTextLines.slice(1);
         for (var _dl = 0; _dl < _diagLinesForHtml.length; _dl++) {
             _diagHtml += '<div style="color:#888;padding:1px 0;">' + _diagLinesForHtml[_dl] + '</div>';
         }
         _diagHtml += '</div>';
+        } // end if (_BP_DIAG_ENABLED)
 
         // Aggregate materials by material_type_id
         var aggMap = {};  // material_type_id -> { name, category_id, build_qty, buy_qty, build_cost, buy_cost, prices:[] }
@@ -7440,6 +7437,21 @@
             use_buy_prices: (c.price_source === "jita_buy"),
         };
 
+        // ── Preserve user-set material decisions across API refresh ──
+        var _rPreserved = {};
+        var _rPreservedPM = {};
+        for (var _rpi = 0; _rpi < order.items.length; _rpi++) {
+            var _rpItem = order.items[_rpi];
+            if (!_rpItem.materials) continue;
+            for (var _rpmi = 0; _rpmi < _rpItem.materials.length; _rpmi++) {
+                var _rpm = _rpItem.materials[_rpmi];
+                _rPreserved[_rpm.material_type_id] = _rpm.decision;
+                if (_rpm._priceMode) {
+                    _rPreservedPM[_rpm.material_type_id] = _rpm._priceMode;
+                }
+            }
+        }
+
         try {
             const resp = await fetch("/api/blueprints/build-cost", {
                 method: "POST",
@@ -7510,6 +7522,16 @@
                             decision: (mat.unit_price && buyCost < buildCost) ? "buy" : "build",
                         };
                     });
+                    // ── Restore user-set material decisions after API refresh ──
+                    for (var _rrdmi = 0; _rrdmi < (orderItem.materials || []).length; _rrdmi++) {
+                        var _rrdm = orderItem.materials[_rrdmi];
+                        if (_rPreserved[_rrdm.material_type_id] !== undefined) {
+                            _rrdm.decision = _rPreserved[_rrdm.material_type_id];
+                        }
+                        if (_rPreservedPM[_rrdm.material_type_id] !== undefined) {
+                            _rrdm._priceMode = _rPreservedPM[_rrdm.material_type_id];
+                        }
+                    }
                 }
                 // Fetch build-steps for each order item to enable inline sub-material display
                 for (const orderItem of order.items) {
