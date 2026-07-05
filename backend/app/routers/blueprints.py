@@ -1,5 +1,6 @@
 """Blueprint routes – sync and query blueprints with ME/TE data (Phase 3A/3B)."""
 
+import json
 import logging
 from typing import Optional, List
 
@@ -2216,10 +2217,14 @@ async def get_build_steps(
                             materials[mat_idx]["is_buildable"] = True
 
                         # How many runs of the child BP to produce enough?
+                        # Use the BASE quantity (before ME/TE) to determine runs.
+                        # ME is applied per-run to the sub-step's own materials,
+                        # not to reduce the number of child blueprint runs needed.
                         child_per_run = child_info["product_quantity"] or 1
+                        base_total = mat["base_quantity"] * needed_runs
                         child_runs_needed = max(
                             1,
-                            math.ceil(mat["total_quantity"] / child_per_run),
+                            math.ceil(base_total / child_per_run),
                         )
 
                         child_step = await resolve_step(
@@ -2665,6 +2670,18 @@ class UserPriceRequest(BaseModel):
     character_id: int
     override_price: Optional[float] = None
     price_source: Optional[str] = "override"
+
+
+@router.post("/debug-diag")
+async def debug_diag(
+    body: dict = Body(...),
+    _user: int = Depends(require_auth),
+):
+    """Receive diagnostic data from the frontend and log it server-side."""
+    logger.info("=== BP DIAGNOSTIC DATA RECEIVED ===")
+    logger.info(json.dumps(body, indent=2, default=str))
+    logger.info("=== END BP DIAGNOSTIC DATA ===")
+    return {"success": True}
 
 
 @router.put("/user-price")

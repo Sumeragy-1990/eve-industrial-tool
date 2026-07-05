@@ -12,6 +12,7 @@
  */
 
 (function () {
+    var _BP_SCRIPT_VERSION = '6de9570+live-diag';
     "use strict";
 
     // ═══════════════════════════════════════════════════════════════
@@ -3703,6 +3704,8 @@
     }
 
     /** Fetch build-cost API for all items in an order (in-place update) */
+    var _bpcLastFetchStatus = null; // 'ok' | 'auth_fail' | 'error'
+
     async function _fetchBuildCostsForOrder(order) {
         const config = loadBuildConfig();
         const payload = {
@@ -3736,6 +3739,7 @@
                 body: JSON.stringify(payload),
             });
             if (resp.ok) {
+                _bpcLastFetchStatus = 'ok';
                 const data = await resp.json();
                 for (const apiItem of data.items) {
                     const orderItem = order.items.find(
@@ -3840,10 +3844,15 @@
                 }
                 // Batch-fetch prices for sub-material type IDs so inline sub-material lists show prices
                 await _fetchSubMaterialPrices(order);
+            } else if (resp.status === 401) {
+                _bpcLastFetchStatus = 'auth_fail';
+                console.warn("[BP] Build-cost API returned 401 (Authentication required) - using localStorage defaults");
             } else {
+                _bpcLastFetchStatus = 'http_' + resp.status;
                 console.warn("[BP] Build-cost API returned", resp.status, "- using defaults");
             }
         } catch (err) {
+            _bpcLastFetchStatus = 'error';
             console.warn("[BP] Build-cost API call failed:", err.message);
         }
     }
@@ -4605,24 +4614,108 @@
             return;
         }
 
-        // Debug: Trace material quantities
-        console.log("[BP-Agg] renderOrderAggregatedMaterials START — order.items:", order.items.length);
+        // ── Live Diagnostic Banner ──
+        // Shows API fetch status, JS version, and material debug data
+        // Build a text version first for the copy button
+        var _diagTextLines = [];
+        _diagTextLines.push('=== BP-Browser Diagnostic ===');
+        _diagTextLines.push('JS Version: ' + (_BP_SCRIPT_VERSION || '?'));
+        _diagTextLines.push('API Status: ' + (_bpcLastFetchStatus || 'not_loaded'));
+        _diagTextLines.push('Order Items: ' + order.items.length);
         for (var _dbgi = 0; _dbgi < order.items.length; _dbgi++) {
             var _dbgItem = order.items[_dbgi];
-            console.log("[BP-Agg] Item " + _dbgi + ":", _dbgItem.product_name, "runs=" + _dbgItem.runs,
-                "materials.length=" + (_dbgItem.materials ? _dbgItem.materials.length : 0),
-                "buildSteps=" + (_dbgItem._buildStepsData ? "loaded" : "missing"));
+            _diagTextLines.push('Item ' + _dbgi + ': "' + (_dbgItem.product_name || '?') + '" runs=' + _dbgItem.runs +
+                ' mats=' + (_dbgItem.materials ? _dbgItem.materials.length : 0) +
+                ' bsteps=' + (_dbgItem._buildStepsData ? 'loaded' : 'missing'));
             if (_dbgItem.materials) {
                 for (var _dbgm = 0; _dbgm < _dbgItem.materials.length; _dbgm++) {
                     var _dbgMat = _dbgItem.materials[_dbgm];
-                    console.log("[BP-Agg]   Mat " + _dbgm + ":", _dbgMat.material_name,
-                        "type_id=" + _dbgMat.material_type_id,
-                        "qty=" + _dbgMat.total_quantity,
-                        "decision=" + _dbgMat.decision,
-                        "buildable=" + _dbgMat.is_buildable);
+                    _diagTextLines.push('  Mat ' + _dbgm + ': ' +
+                        _dbgMat.material_name + ' (type=' + _dbgMat.material_type_id + ') ' +
+                        'qty=' + _dbgMat.total_quantity + ' ' +
+                        '[' + (_dbgMat.decision || '?') + ']' +
+                        (_dbgMat.is_buildable ? ' BUILDABLE' : ''));
                 }
             }
         }
+        // ---- Add aggregation totals directly to diagnostic ----
+        // Track totals per material type for the diagnostic
+        var _diagQtySource = {};  // type_id -> { fromDirect:0, fromSubMats:0, items:[] }
+        for (var _diagi = 0; _diagi < order.items.length; _diagi++) {
+            var _diagItem = order.items[_diagi];
+            if (!_diagItem.materials) continue;
+            for (var _diagmi = 0; _diagmi < _diagItem.materials.length; _diagmi++) {
+                var _diagm = _diagItem.materials[_diagmi];
+                var _diagId = _diagm.material_type_id;
+                if (!_diagQtySource[_diagId]) _diagQtySource[_diagId] = { fromDirect:0, fromSubMats:0, items:[] };
+                _diagQtySource[_diagId].items.push(_diagItem.product_name || '?');
+                if (_diagm.decision === 'buy') {
+                    _diagQtySource[_diagId].fromDirect += _diagm.total_quantity || 0;
+                }
+                // For "build" materials, check sub-materials
+                if (_diagm.decision === 'build' && _diagItem._buildStepsData) {
+                    var _diagSubs = _getBuildSubMaterials(_diagItem, _diagId, _diagm.total_quantity);
+                    if (_diagSubs.length > 0) {
+                        for (var _diagsmi = 0; _diagsmi < _diagSubs.length; _diagsmi++) {
+                            var _diagsm = _diagSubs[_diagsmi];
+                            if (!_diagQtySource[_diagsm.type_id]) _diagQtySource[_diagsm.type_id] = { fromDirect:0, fromSubMats:0, items:[] };
+                            if (!_diagQtySource[_diagsm.type_id].items.includes(_diagItem.product_name || '?')) {
+                                _diagQtySource[_diagsm.type_id].items.push(_diagItem.product_name || '?');
+                            }
+                            _diagQtySource[_diagsm.type_id].fromSubMats += _diagsm.qty || 0;
+                        }
+                    } else {
+                        _diagQtySource[_diagId].fromDirect += _diagm.total_quantity || 0;
+                    }
+                }
+            }
+        }
+        var _diagTotalQty = 0;
+        var _diagTopContributors = [];
+        for (var _diagKey in _diagQtySource) {
+            var _diagEntry = _diagQtySource[_diagKey];
+            var _diagEntryTotal = _diagEntry.fromDirect + _diagEntry.fromSubMats;
+            _diagTotalQty += _diagEntryTotal;
+            if (_diagEntryTotal > 0) {
+                _diagTopContributors.push({ typeId: _diagKey, total: _diagEntryTotal, direct: _diagEntry.fromDirect, sub: _diagEntry.fromSubMats, items: _diagEntry.items.join(',') });
+            }
+        }
+        _diagTopContributors.sort(function(a,b) { return b.total - a.total; });
+        _diagTextLines.push('AGGREGATED TOTAL: ' + _diagTotalQty);
+        for (var _diagtc = 0; _diagtc < Math.min(_diagTopContributors.length, 15); _diagtc++) {
+            var _tc = _diagTopContributors[_diagtc];
+            _diagTextLines.push('  QTY=' + _tc.total + ' type=' + _tc.typeId + ' (direct=' + _tc.direct + ', sub=' + _tc.sub + ') items=[' + _tc.items + ']');
+        }
+        var _diagClipText = _diagTextLines.join('\n');
+        window.BP_DIAG_TEXT = _diagClipText; // make accessible for copy button
+
+        var _diagHtml = '<div class="bp-diagnostic-banner" style="font-size:0.6rem;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:4px;padding:5px 8px;margin-bottom:6px;">';
+        _diagHtml += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:3px;">';
+        _diagHtml += '<span style="color:#aaa;">API:</span> ';
+        if (_bpcLastFetchStatus === 'ok') {
+            _diagHtml += '<span style="color:#28a745;font-weight:700;">✅ AUTH OK</span>';
+        } else if (_bpcLastFetchStatus === 'auth_fail') {
+            _diagHtml += '<span style="color:#dc3545;font-weight:700;">❌ AUTH FAILED (401)</span> <span style="color:#ffc107;">→ Daten aus localStorage (alt!)</span>';
+        } else if (_bpcLastFetchStatus === 'error') {
+            _diagHtml += '<span style="color:#dc3545;font-weight:700;">❌ NETWORK ERROR</span> <span style="color:#ffc107;">→ Daten aus localStorage (alt!)</span>';
+        } else if (_bpcLastFetchStatus && _bpcLastFetchStatus.indexOf('http_') === 0) {
+            _diagHtml += '<span style="color:#dc3545;font-weight:700;">❌ HTTP ' + _bpcLastFetchStatus.replace('http_','') + '</span> <span style="color:#ffc107;">→ Daten aus localStorage (alt!)</span>';
+        } else {
+            _diagHtml += '<span style="color:#aaa;">⚠️ Noch nicht geladen</span>';
+        }
+        _diagHtml += '<span style="color:#666;">|</span>';
+        _diagHtml += '<span style="color:#888;">JS: ' + (_BP_SCRIPT_VERSION || '?') + '</span>';
+        _diagHtml += '<span style="color:#666;">|</span>';
+        _diagHtml += '<button onclick="var t=document.createElement(\'textarea\');t.value=BP_DIAG_TEXT;document.body.appendChild(t);t.select();document.execCommand(\'copy\');document.body.removeChild(t);this.textContent=\'✅ Kopiert!\';setTimeout(()=>{this.textContent=\'📋 Kopieren\';},2000);" style="font-size:0.55rem;padding:1px 6px;background:#444;color:#fff;border:1px solid #666;border-radius:3px;cursor:pointer;">📋 Kopieren</button>';
+        _diagHtml += ' ';
+        _diagHtml += '<button onclick="var btn=this;btn.textContent=\'⏳ Sende...\';fetch(\'/api/blueprints/debug-diag\',{method:\'POST\',headers:{\'Content-Type\':\'application/json\'},credentials:\'include\',body:JSON.stringify({diag:BP_DIAG_TEXT})}).then(function(r){if(r.ok){btn.textContent=\'✅ Gesendet!\';setTimeout(function(){btn.textContent=\'📡 Senden\';},3000)}else{btn.textContent=\'❌ Fehler (HTTP \'+r.status+\')\';setTimeout(function(){btn.textContent=\'📡 Senden\';},5000)}}).catch(function(){btn.textContent=\'❌ Netzwerkfehler\';setTimeout(function(){btn.textContent=\'📡 Senden\';},5000)});" style="font-size:0.55rem;padding:1px 6px;background:#0d6efd;color:#fff;border:1px solid #0a58ca;border-radius:3px;cursor:pointer;">📡 Senden</button>';
+        _diagHtml += '</div>';
+        // Debug: Trace material quantities (immer sichtbar) + store text for copy button
+        var _diagLinesForHtml = _diagTextLines.slice(1); // skip header for HTML
+        for (var _dl = 0; _dl < _diagLinesForHtml.length; _dl++) {
+            _diagHtml += '<div style="color:#888;padding:1px 0;">' + _diagLinesForHtml[_dl] + '</div>';
+        }
+        _diagHtml += '</div>';
 
         // Aggregate materials by material_type_id
         var aggMap = {};  // material_type_id -> { name, category_id, build_qty, buy_qty, build_cost, buy_cost, prices:[] }
@@ -4744,7 +4837,8 @@
             }
         }
 
-        var html = '<div class="bp-order-aggregated">';
+        var html = _diagHtml;
+        html += '<div class="bp-order-aggregated">';
         html += '<div class="bp-order-agg-title"><i class="bi bi-table"></i> Aggregated Materials</div>';
         html += '<div class="bp-order-mat-header">' +
             '<span class="bp-mat-col-badge"></span>' +
