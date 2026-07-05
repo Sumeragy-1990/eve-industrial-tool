@@ -3741,6 +3741,27 @@
             if (resp.ok) {
                 _bpcLastFetchStatus = 'ok';
                 const data = await resp.json();
+
+                // ── Preserve user-set material decisions across API refresh ──
+                var _preservedDecisions = {};  // material_type_id -> decision
+                var _preservedPriceModes = {};
+                for (var _pdi = 0; _pdi < order.items.length; _pdi++) {
+                    var _pdItem = order.items[_pdi];
+                    if (!_pdItem.materials) continue;
+                    for (var _pdmi = 0; _pdmi < _pdItem.materials.length; _pdmi++) {
+                        var _pdm = _pdItem.materials[_pdmi];
+                        // Only preserve if user explicitly set it via setAggOrderMaterialDecision
+                        // All materials from the auto-decision function have decision computed;
+                        // the only way a user-set decision differs is if it was toggled via the UI.
+                        // We store every decision, then after refresh we only restore for type_ids
+                        // that exist in the new data.
+                        _preservedDecisions[_pdm.material_type_id] = _pdm.decision;
+                        if (_pdm._priceMode) {
+                            _preservedPriceModes[_pdm.material_type_id] = _pdm._priceMode;
+                        }
+                    }
+                }
+
                 for (const apiItem of data.items) {
                     const orderItem = order.items.find(
                         oi => oi.blueprint_type_id === apiItem.blueprint_type_id
@@ -3816,6 +3837,16 @@
                             })(mat, buyCost, buildCost),
                         };
                     });
+                    // ── Restore user-set material decisions after API refresh ──
+                    for (var _rdmi = 0; _rdmi < (orderItem.materials || []).length; _rdmi++) {
+                        var _rdm = orderItem.materials[_rdmi];
+                        if (_preservedDecisions[_rdm.material_type_id] !== undefined) {
+                            _rdm.decision = _preservedDecisions[_rdm.material_type_id];
+                        }
+                        if (_preservedPriceModes[_rdm.material_type_id] !== undefined) {
+                            _rdm._priceMode = _preservedPriceModes[_rdm.material_type_id];
+                        }
+                    }
                 }
                 // Fetch build-steps for each order item to enable inline sub-material display
                 // Build-steps werden mit den aktuellen runs/me/te abgerufen (Bugfix: ohne Query-Params = runs=1)
