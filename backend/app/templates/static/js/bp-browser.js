@@ -1816,6 +1816,11 @@
             return;
         }
 
+        // Product output quantity per run (prominent display)
+        var _outputQty = data.product_quantity_per_run || 1;
+        var _runs = parseInt(document.getElementById("bpConfigRuns").value) || 1;
+        var _totalOutput = _outputQty * _runs;
+
         // Show Jita Sell price for finished item above materials
         var productPrice = getPrice(data.product_type_id);
         var jitaSellPrice = (productPrice && productPrice.sell_price_min != null)
@@ -1823,13 +1828,27 @@
         var jitaBuyPrice = (productPrice && productPrice.sell_price_max != null)
             ? productPrice.sell_price_max : null;
 
-        var html = '<div class="bp-detail-section mb-2 p-2" style="font-size:0.78rem; border:1px solid var(--bs-border-color); border-radius:4px;">' +
+        var html = '<div class="bp-detail-section mb-2 p-2" style="font-size:0.78rem; border:1px solid var(--bs-border-color); border-radius:4px;">';
+
+        // Output quantity per run — what the user asked for
+        html += '<div class="d-flex justify-content-between align-items-center mb-1">' +
+            '<span class="text-secondary">Output pro Run:</span>' +
+            '<span class="fw-bold" style="font-size:0.9rem;">' + formatNumber(_outputQty) + 'x</span>' +
+            '</div>';
+        if (_runs > 1) {
+            html += '<div class="d-flex justify-content-between align-items-center mb-1" style="font-size:0.72rem;">' +
+                '<span class="text-secondary">Total (' + _runs + ' Runs):</span>' +
+                '<span class="fw-bold">' + formatNumber(_totalOutput) + 'x</span>' +
+                '</div>';
+        }
+
+        html += '<div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:4px;">' +
             '<span class="text-secondary">Jita Sell: </span>';
         if (jitaSellPrice != null) {
             html += '<span class="text-success fw-bold">' + formatIsk(jitaSellPrice) + '</span>';
             // Show per-unit if quantity > 1
-            if (data.product_quantity_per_run && data.product_quantity_per_run > 1) {
-                html += ' <span class="text-secondary small">(' + formatIsk(jitaSellPrice / data.product_quantity_per_run) + '/unit)</span>';
+            if (_outputQty > 1) {
+                html += ' <span class="text-secondary small">(' + formatIsk(jitaSellPrice / _outputQty) + '/unit)</span>';
             }
         } else {
             html += '<span class="text-secondary">—</span>';
@@ -1837,7 +1856,7 @@
         if (jitaBuyPrice != null) {
             html += ' <span class="text-secondary">| Buy: </span><span class="text-warning">' + formatIsk(jitaBuyPrice) + '</span>';
         }
-        html += '</div>';
+        html += '</div></div>';
 
         // Determine whether we have buildSteps with sub-components (for Base Minerals section)
         var hasSubSteps = (buildStepsData && buildStepsData.steps && buildStepsData.steps[0] &&
