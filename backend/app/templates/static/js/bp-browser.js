@@ -4403,18 +4403,28 @@
                     // Qty
                     html += '<span class="bp-mat-col-qty">' + formatNumber(m.total_quantity) + '</span>';
 
-                    // Sell price per unit
+                    // Sell price per unit — fallback: stored → getPrice sell → getEffectivePrice → unit_price
                     var sellPrice = (m.sell_price_per_unit != null) ? m.sell_price_per_unit : null;
                     if (sellPrice === null) {
                         var cacheEntry = getPrice(m.material_type_id);
                         if (cacheEntry && cacheEntry.sell_price_min != null) sellPrice = cacheEntry.sell_price_min;
                     }
-                    // Buy price per unit
+                    if (sellPrice === null) {
+                        var _fiS = getEffectivePrice(m.material_type_id);
+                        if (_fiS.price != null) sellPrice = _fiS.price;
+                    }
+                    if (sellPrice === null && m.unit_price != null) sellPrice = m.unit_price;
+                    // Buy price per unit — fallback: stored → getPrice buy → getEffectivePrice → unit_price
                     var buyPrice = (m.buy_price_per_unit != null) ? m.buy_price_per_unit : null;
                     if (buyPrice === null) {
                         var cacheEntry2 = getPrice(m.material_type_id);
                         if (cacheEntry2 && cacheEntry2.buy_price_max != null) buyPrice = cacheEntry2.buy_price_max;
                     }
+                    if (buyPrice === null) {
+                        var _fiB = getEffectivePrice(m.material_type_id);
+                        if (_fiB.price != null) buyPrice = _fiB.price;
+                    }
+                    if (buyPrice === null && m.unit_price != null) buyPrice = m.unit_price;
                     // G??nstigste Markt-Option hervorheben
                     var _cheapSty = 'color:var(--t-success,#198754);font-weight:600;';
                     var _sellTot = (sellPrice != null && sellPrice > 0) ? sellPrice * m.total_quantity : Infinity;
