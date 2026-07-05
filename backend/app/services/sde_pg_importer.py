@@ -40,6 +40,7 @@ from app.database import async_session_factory
 from app.models.sde_item import SDEItem
 from app.models.sde_blueprint import SDEBlueprint, SDEBlueprintMaterial, SDEBlueprintProduct, SDEBlueprintSkill
 from app.models.sde_solar_system import SDESolarSystem, SDERegion, SDEStation
+from app.models.sde_market_group import SDEMarketGroup
 
 # Race name lookup (CCP raceID → display name)
 RACE_NAMES = {
@@ -70,6 +71,7 @@ TABLE_URLS = {
     "invNames": f"{FUZZWORK_BASE}/invNames.csv",
     "industryActivity": f"{FUZZWORK_BASE}/industryActivity.csv",
     "invMetaTypes": f"{FUZZWORK_BASE}/invMetaTypes.csv",
+    "invTypeReactions": f"{FUZZWORK_BASE}/invTypeReactions.csv",
 }
 
 # Category IDs that CCP uses
@@ -253,6 +255,12 @@ async def import_sde_pg(
                     stats["types_skipped"] += 1
                     continue
 
+                # Skip corrupted rows where agent names leaked into the CSV
+                # (e.g. "000 - Molocath Vynneve", "000 - Lady mifa", etc.)
+                if name.startswith("000 -"):
+                    stats["types_skipped"] += 1
+                    continue
+
                 group_id = _parse_int(row[1]) if len(row) > 1 else None
                 description = row[3] if len(row) > 3 else ""
 
@@ -343,6 +351,39 @@ async def import_sde_pg(
         await db_session.commit()
         logger.info(f"Types imported: {stats['types_imported']}")
 
+        # ── Step 2.5: Download and import market groups ─────────
+        if progress_callback:
+            progress_callback("Downloading market group data...", 30)
+
+        market_groups_raw = await download_table("invMarketGroups", TABLE_URLS["invMarketGroups"])
+        stats["market_groups"] = 0
+
+        for row in market_groups_raw:
+            try:
+                mgid = _parse_int(row[0])  # marketGroupID
+                if not mgid:
+                    continue
+                parent_id = _parse_int(row[1])  # parentGroupID
+                name = row[2] if len(row) > 2 else ""  # marketGroupName
+                desc = row[3] if len(row) > 3 else ""  # description
+                icon_id = _parse_int(row[4]) if len(row) > 4 else None  # iconID
+                has_types = _parse_int(row[5]) if len(row) > 5 else 1  # hasTypes
+                mg = SDEMarketGroup(
+                    market_group_id=mgid,
+                    parent_group_id=parent_id,
+                    name=name,
+                    description=desc,
+                    icon_id=icon_id,
+                    has_types=bool(has_types),
+                )
+                await db_session.merge(mg)
+                stats["market_groups"] += 1
+            except Exception as e:
+                logger.warning(f"Error importing market group {row[0] if row else '?'}: {e}")
+
+        await db_session.commit()
+        logger.info(f"Market groups imported: {stats['market_groups']}")
+
         # ── Step 3: Download and import blueprints ──────────────
         if progress_callback:
             progress_callback("Downloading blueprint data...", 40)
@@ -394,6 +435,48 @@ async def import_sde_pg(
                 logger.warning(f"Error importing blueprint {row[0] if row else '?'}: {e}")
 
         await db_session.commit()
+
+        # ── Reaction Blueprint definitions (activity_id=11) ──
+        # Reactions are NOT in industryBlueprints.csv. They are identified by
+        # having entries in industryActivityProducts.csv with activity_id=11.
+        # Scan bp_products_raw to find all type_ids with reaction products.
+        reaction_type_ids = {}
+        for row in bp_products_raw:
+            try:
+                _t = _parse_int(row[0])
+                _a = _parse_int(row[1])
+                _pt = _parse_int(row[2])
+                _q = _parse_int(row[3])
+                if _t and _a == 11 and _pt:
+                    # Only keep the first reaction product per type_id
+                    if _t not in reaction_type_ids:
+                        reaction_type_ids[_t] = {
+                            "product_type_id": _pt,
+                            "product_name": type_id_to_name.get(_pt, ""),
+                            "quantity": _q or 1,
+                        }
+            except Exception:
+                pass
+
+        for type_id, prod_info in reaction_type_ids.items():
+            try:
+                bp = SDEBlueprint(
+                    type_id=type_id,
+                    product_type_id=prod_info["product_type_id"],
+                    product_name=prod_info["product_name"],
+                    activity_id=11,
+                    max_production_limit=None,  # Reactions not in industryBlueprints.csv
+                    manufacturing_time=activity_times.get((type_id, 11)),
+                    tech_level=None,
+                    is_reaction=True,
+                )
+                await db_session.merge(bp)
+                stats["blueprints"] += 1
+            except Exception as e:
+                logger.warning(f"Error importing reaction blueprint {type_id}: {e}")
+
+        await db_session.commit()
+        logger.info(f"Reaction blueprints imported: {len(reaction_type_ids)}")
 
         # Blueprint materials
         # FIX: Previously used merge() with an autoincrement PK, which never matched

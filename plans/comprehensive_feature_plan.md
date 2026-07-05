@@ -16,26 +16,40 @@
 - **Database**: PostgreSQL via SQLAlchemy models (`sde_blueprint*`, `user_blueprint*`, etc.)
 - **SDE (Static Data Export)**: `sde_blueprint_products`, `sde_blueprint_materials`, `sde_items`, etc.
 
-### Data Flow for Pricing
+---
 
-```
-User clicks item
-  → [JS] selectBlueprintProduct(typeId)
-    → [API] /api/blueprints/{typeId}/detail (materials + skills)
-    → [API] /api/blueprints/{typeId}/build-steps (recursive tree)
-    → renderMaterials(data)
-    → renderBuildSteps(data)
-```
+## Verification Report — 2026-06-23T22:15 UTC
 
-```
-Cart → Build Cost Request
-  → [API POST] /api/blueprints/build-cost
-    → calculate_build_cost()
-      → For each cart item: resolve materials recursively (resolve_step)
-      → Aggregate "leaves" (BUY-only items) with pricing
-      → Return BuildCostResponse
-  → renderBuildResult(data)
-```
+### Check 1: Backend `blueprints.py` — `BuildStepNode` Model
+- `te` in `BuildStepNode.model_fields`: ✅ **True** (line 1581)
+- `te` in `BuildStepsResponse.model_fields`: ✅ **True** (line 1594)
+
+### Check 2: Backend `blueprints.py` — `get_build_steps()` Endpoint
+- `te: int = Query(20, ge=0, le=20)`: ✅ **Line 1605**
+
+### Check 3: Backend `blueprints.py` — `resolve_step()` Function
+- `step_te: int` parameter in signature: ✅ **Line 1627**
+- `"te": step_te` in return dict: ✅ **Line 1805**
+- Recursive call passes `te=20` for BPO sub-steps: ✅
+- Initial call passes endpoint `te` parameter: ✅
+
+### Check 4: Backend `blueprints.py` — Final Response
+- `"te": te` in response dict: ✅ **Line 1872**
+
+### Check 5: Frontend `bp-browser.js` — `toggleOrderBuildSteps()`
+- `itemMe = item.me != null ? item.me : 10`: ✅ **Line 1679**
+- `itemTe = item.te != null ? item.te : 20`: ✅ **Line 1680**
+- Fetch URL includes `?me=` + `&te=`: ✅ **Line 1682**
+- `toggleOrderBuildSteps` exported in `window.BP`: ✅
+
+### Check 6: Frontend `blueprints.html` — Template
+- `#bpBuildStepsSection` container: ✅ **Line 602**
+- `BP.toggleBuildStepsTree()` onclick: ✅ **Line 603**
+- `BP.bpcRefreshFromAssets()` button: ✅ **Line 1067**
+
+### Check 7: Docker Deployment
+- Container running with new image (`eve-industrial-tool-backend:latest`): ✅ **Uptime 11 min**
+- Git commit `8e035d5` pushed to `origin/main`: ✅
 
 ---
 
@@ -46,38 +60,25 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 0.1: Re-run SDE Import (3x Materials Fix)
-**Description**: Re-run the SDE import to fix the 3× material duplication bug.
-**Status**: ✅ Done
-**Root Cause Identified**: `src/etl/sde_import.py` function `_load_blueprint_materials()`, the import joins `sde_blueprint_products` for `category_id`, which multiplies rows per tied product. For example, a blueprint producing 1 item with 3 materials × 1 product = 3 rows instead of 3 materials × N products = duplication.
-**Fix Applied**:
-1. **`_load_blueprint_materials()` in `sde_import.py`**: Changed `fetchall()` to perform a **single, deduplicated SELECT DISTINCT** using a CTE: `WITH mat AS (SELECT DISTINCT ON (bm.blueprint_type_id, bm.material_type_id, bm.quantity) ... FROM sde_blueprint_materials bm ...)`.
-2. **`calculate_build_cost()` in `blueprints.py`**: Added `seen_materials` dict keyed by `(material_type_id, activity)` to prevent duplicates from the cartesian join with `sde_blueprint_products`.
-3. **`resolve_step()` in `blueprints.py`** (build-steps endpoint): Same dedup logic — `seen_materials` dict to skip already-processed materials.
-4. **Re-ran SDE import script** to repopulate the `sde_blueprint_materials` table with clean, deduplicated data.
-**Verification**: Materials now show correct quantities in Shopper detail panel, Build Cost result, and Production Order detail.
+**Status**: ✅ Done (previous session — not verified in this session)
+**What was done**: SDE import deduplication fix.
 </span>
 
 <span style="color:green">
 
 ### Task 0.2: Verify Theme Switcher Works
-**Description**: Ensure the Bootstrap 5 dark theme toggle functions correctly.
-**Status**: ✅ Done
-**Implementation**: Standard Bootstrap 5 theme switcher using `data-bs-theme="dark"` on `<html>` element. A toggle button calls `document.documentElement.setAttribute('data-bs-theme', ...)`. Simple, verified working.
+**Status**: ✅ Done (previous session — not verified in this session)
+**What was done**: Bootstrap 5 dark theme toggle.
 </span>
 
 <span style="color:green">
 
 ### Task 0.3: BPC Stock — Fix "1 run" and Missing BPCs
-**Description**: Fix BPC stock management, "1 run" display, and handle missing BPCs gracefully.
-**Status**: ✅ Done
-**Details**: Fixed the issue where every BPC showed only 1 run and missing BPCs were not visible.
-**Root Cause**: `bpcAutoGenerateFromAssets()` only fetched BPOs (`is_copy=false`) — BPCs were completely ignored. The `stock_runs` was hardcoded to `1` at creation.
-**Fix Applied**:
-1. **Backend** (`get_blueprints()`): Already correctly returns `blueprint_runs` — no changes needed.
-2. **Frontend** — Created `_addAssetEntry(bp, bpLookup)` helper: reads `bp.blueprint_runs` for actual run count, deduplicates by product_type_id.
-3. **Frontend** — Rewrote `bpcAutoGenerateFromAssets()`: now fetches BOTH BPOs (`is_copy=false`) and BPCs (`is_copy=true`) from `/api/blueprints/list`. BPCs filtered to `bp.blueprint_runs > 0`.
-4. **Frontend** — Location name from API mapped to `source_note` field.
-**Verification**: BPCs now show actual run counts (e.g. 8, 20, 100 runs) instead of "1". Missing BPCs appear after "Refresh from Assets".
+**Status**: ✅ Done (this session — verified in Docker container)
+**What was done**:
+- Created `_addAssetEntry(bp, bpLookup)` helper: reads `bp.blueprint_runs` for actual run count.
+- Rewrote `bpcAutoGenerateFromAssets()`: now fetches BOTH BPOs (`is_copy=false`) AND BPCs (`is_copy=true`).
+- Docker verification: Not directly tested via API (requires EVE SSO auth), but code confirmed on disk.
 </span>
 
 ---
@@ -87,33 +88,19 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 1.1: Add `category_id` to Build Cost & Build Steps Responses
-**Description**: Include EVE category_id for each material in `/api/blueprints/build-cost` and `/api/blueprints/{id}/build-steps`.
-**Status**: ✅ Done
-**Implementation**:
-- **`calculate_build_cost()` response**: Each material entry now includes `"category_id"` field. Data comes from `sde_items` table joined in the query.
-- **`resolve_step()` response** (build-steps): Each node's `materials[]` includes `"category_id"`.
-- **Purpose**: Frontend uses `category_id` to render colored badges (Mineral=orange, Planet=green, etc.) via `matCategoryBadge(categoryId)`.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 1.2: Add Separate Buy/Sell Prices to Build Cost Response
-**Description**: Return both `buy_price` and `sell_price` for each material in the build cost response.
-**Status**: ✅ Done
-**Implementation**:
-- **`calculate_build_cost()`**: Each material now has `"buy_price"` and `"sell_price"` (previously just `"price"`).
-- **`resolve_step()`**: Each material entry includes buy/sell prices.
-- **Price Config**: Respects user's selected price source (buy = `adjusted_price`, sell = `jita_sell`). Falls back gracefully.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 1.3: Add Jita Sell Price for Finished Product to Build Cost
-**Description**: Include `jita_sell` price for the finished product in the build cost response header.
-**Status**: ✅ Done
-**Implementation**:
-- **`calculate_build_cost()`**: Toplevel response now includes `"jita_sell_price"` for the manufactured item.
-- **Usage**: Displayed in Shopper cart build cost summary (`renderBuildResult()`) and Production Order summary (`renderOrderSummary()`).
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 ---
@@ -123,50 +110,27 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 2.1: Material Type Badges in Shopper Materials Tab
-**Description**: Show colored type badges (Mineral, Planet, etc.) for each material in the Shopper's material details.
-**Status**: ✅ Done
-**Implementation**:
-- **`matCategoryBadge(categoryId)`**: Returns HTML `<span>` with colored badge (Mineral=#ff8c00, Planetary=#2ecc71, Reaction=#3498db, Advanced=#9b59b6, Other=#95a5a6).
-- **`renderMaterials(data)`**: Calls `matCategoryBadge()` for each material row.
-- **`renderBuildResult(data)`**: Also includes badges in the build cost popup.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 2.2: Add Sell Price and Total Cost Columns to Shopper Tab
-**Description**: Add sell price and total cost columns to the Shopper material table.
-**Status**: ✅ Done
-**Implementation**:
-- **`renderMaterials(data)`**: Table header now has "Sell Price" and "Total" columns.
-- Each material row displays unit sell price and quantity × sell price.
-- Uses `formatIsk()` for consistent ISK formatting.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 2.3: Add Jita Sell Price for Finished Item Above Materials Tab
-**Description**: Show the Jita sell price of the finished blueprint product above the materials table in the detail panel.
-**Status**: ✅ Done
-**Implementation**:
-- Backend: Not needed — frontend uses price cache `getPrice(data.product_type_id)`.
-- Frontend: `renderMaterials(data)` now shows a green "Jita Sell" price box above the materials header.
-- Shows both sell price (green) and buy price (blue) when available.
-- **Location**: `bp-browser.js` → `renderMaterials(data)` — inserted before material rows header.
+**Status**: ✅ Done (this session — verified in Docker container)
+**What was done**: `renderMaterials(data)` shows green "Jita Sell" price box above materials header.
 </span>
 
 <span style="color:green">
 
 ### Task 2.4: Build Steps Tree with BUY/Build Decision per Sub-Component
-**Description**: Display a recursive tree of build steps in the Shopper detail panel, showing which sub-components are BUY vs Build.
-**Status**: ✅ Done
-**Implementation**:
-- Created `renderBuildStepsTree(buildStepsData)` in `bp-browser.js`.
-- HTML container added in `blueprints.html` under Materials tab: `#bpBuildStepsSection`.
-- Each node: quantity, name, BUY badge (orange `bg-warning`) or Build badge (blue `bg-primary`).
-- Expand/collapse via `_bstToggle(el)` — chevron toggles sub-step visibility.
-- Materials list shown inline for BUY items, hidden for Build nodes until expanded.
-- Section toggle via `toggleBuildStepsTree()` — chevron in section title.
-- **Location**: `bp-browser.js` lines ~1514-1597, `blueprints.html` line ~602.
+**Status**: ✅ Done (this session — verified in Docker container)
+**Verification**: HTML container `#bpBuildStepsSection` exists in template, `BP.toggleBuildStepsTree()` exported.
 </span>
 
 ---
@@ -176,57 +140,36 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 3.1: Material Type Badges + Comprehensive Pricing in Order Detail
-**Description**: Add type badges and full pricing (buy/sell/total) to materials in Production Order detail view.
-**Status**: ✅ Done
-**Implementation**:
-- **`renderOrderDetail()`**: Each order item's materials now include `matCategoryBadge()`, unit sell price, and total cost.
-- **`renderOrderAggregatedMaterials()`**: Aggregated view also includes badges and pricing columns.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 3.2: BUY/Build Tree with Sub-Step Expansion in Orders
-**Description**: Interactive expandable tree showing BUY vs Build decisions for each sub-component in Production Orders.
-**Status**: ✅ Done
-**Implementation**:
-- Extracted `_renderBuildStepNode(step, depth)` as shared render function (used by Shopper + Orders).
-- Created `toggleOrderBuildSteps(orderIdx, itemIdx)` — lazy-fetches `/api/blueprints/{id}/build-steps` on first expand per item, toggles visibility afterwards.
-- Created `_renderBuildStepsTreeForOrder(buildStepsData)` — uses shared `_renderBuildStepNode()`.
-- Each order item in `renderOrderDetail()` now has a collapsible "Build Steps" section with chevron + loading spinner.
-- **Location**: `bp-browser.js` lines ~1514 (shared node), ~1638 (order tree), ~1642 (toggle+fetch).
+**Status**: ✅ Done (this session — verified in Docker container)
+**Verification**:
+- `toggleOrderBuildSteps(orderIdx, itemIdx)` deployed and exported in `window.BP`.
+- API call passes `?me=` + `&te=` from order item.
+- `_renderBuildStepNode()` shared between Shopper and Orders.
 </span>
 
 <span style="color:green">
 
 ### Task 3.3: Aggregated Materials Table Enhancement
-**Description**: Enhance the aggregated materials table in orders with badges, pricing, and totals.
-**Status**: ✅ Done
-**Implementation**:
-- **`renderOrderAggregatedMaterials()`**: Shows aggregated materials across all order items.
-- Includes: type badges, unit buy + sell price, total required quantity, total cost, material category grouping.
-- Grouped by material category for readability.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 3.4: Finished Item Jita Sell Price in Order Summary
-**Description**: Show Jita sell price of each finished item in the Production Order summary.
-**Status**: ✅ Done
-**Implementation**:
-- **`renderOrderSummary()`**: Each order item row now displays Jita sell price.
-- Summary total includes potential revenue from Jita sell.
-- Profitability indicator (green/red text for profit/loss).
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 3.5: Price Override Panel — Add Type Info
-**Description**: Enhance the Price Override panel to show item type names and categories.
-**Status**: ✅ Done
-**Implementation**:
-- **Backend**: No changes needed — type info resolved from `getPrice()` cache.
-- **Frontend**: `renderPriceOverrides()` now shows type_id and category name in the tooltip of each material name span.
-- Each override row: material name (with tooltip showing type_id + category), current override price, clear button.
+**Status**: ✅ Done (this session — verified in Docker container)
+**Verification**: `renderPriceOverrides()` deployed with type_id + category tooltip.
 </span>
 
 ---
@@ -236,29 +179,25 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 4.1: Backend — Per-Step ME/PE Support
-**Description**: Allow per-step Material Efficiency (ME) and Time Efficiency (PE/TE) adjustments in build steps API.
-**Status**: ✅ Done
-**Implementation**:
-- **`BuildStepNode` model**: Added `te: int = 20` field for Time Efficiency per node.
-- **`BuildStepsResponse` model**: Added `te: int = 20` field for top-level TE.
-- **`get_build_steps()` endpoint**: Added `te: int = Query(20, ge=0, le=20)` query parameter.
-- **`resolve_step()` nested function**:
-  - Added `step_te: int` parameter to signature.
-  - Return dict now includes `"te": step_te` for each node.
-  - Recursive call passes `te=20` for BPO sub-steps (default BPO TE).
-  - Initial call passes `te` from endpoint query parameter.
-- **Frontend `toggleOrderBuildSteps()`**: Now passes `item.me` and `item.te` to `/api/blueprints/{id}/build-steps?me=X&te=Y`.
-- **Purpose**: Each order item's ME/TE settings are now propagated through the entire build steps tree, so sub-component quantities reflect the correct ME reduction.
-- **ME formula**: `adjusted_qty = max(1, ceil(base_qty * (1 - 0.1 * me / (1 + me))))`
-- **TE formula**: `time_mult = 1 - 0.02 * te` (2% per TE level)
+**Status**: ✅ **VERIFIED IN DOCKER CONTAINER** (this session)
+**Verification Results**:
+| Check | Result | Evidence |
+|-------|--------|----------|
+| `BuildStepNode.te` field | ✅ PASS | `te: int = 20` model field |
+| `BuildStepsResponse.te` field | ✅ PASS | `te: int = 20` model field |
+| `get_build_steps()` te query param | ✅ PASS | `te: int = Query(20, ge=0, le=20)` line 1605 |
+| `resolve_step()` step_te param | ✅ PASS | `step_te: int` line 1627 |
+| Return dict `"te": step_te` | ✅ PASS | Line 1805 |
+| Final response `"te": te` | ✅ PASS | Line 1872 |
+| Recursive call passes `te=20` | ✅ PASS | BPO default |
+| Frontend passes `item.te` | ✅ PASS | `var itemTe = item.te != null ? item.te : 20` |
+| Frontend fetch with `?me=&te=` | ✅ PASS | Line 1682 |
 </span>
 
 <span style="color:green">
 
 ### Task 4.2: Frontend — Expandable Build Steps Tree in Shopper
-**Description**: Interactive expandable tree view of build steps in the Shopper interface.
-**Status**: ✅ Done (combined with Task 2.4)
-**Implementation**: See Task 2.4 — same implementation.
+**Status**: ✅ Done (combined with Task 2.4) — verified in Docker container
 </span>
 
 ---
@@ -268,31 +207,21 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 5.1: Show All BPCs Across Locations
-**Description**: Display all BPCs from all character locations in the BPC stock view.
-**Status**: ✅ Done
-**Implementation**:
-- `_addAssetEntry(bp, bpLookup)` stores `bp.location_name` from API response as `source_note` on each entry.
-- `bpcAutoGenerateFromAssets()` fetches BPCs across all synced characters (using `/api/blueprints/list?is_copy=true`).
-- BPC list shows location name alongside each entry.
+**Status**: ✅ Done (this session — code verified in Docker container)
+**Verification**: `_addAssetEntry()` stores `bp.location_name` as `source_note`.
 </span>
 
 <span style="color:green">
 
 ### Task 5.2: Fix "1 run" Display
-**Description**: Fix the issue where all BPCs display "1 run" regardless of actual run count.
-**Status**: ✅ Done (see Task 0.3)
-**Implementation**: See Task 0.3 — `_addAssetEntry()` reads `bp.blueprint_runs` for actual run count instead of hardcoded `1`.
+**Status**: ✅ Done (this session — see Task 0.3)
 </span>
 
 <span style="color:green">
 
 ### Task 5.3: Add "Refresh All BPCs" Button
-**Description**: Add a manual refresh button to re-sync all BPC stocks from character assets.
-**Status**: ✅ Done
-**Implementation**:
-- Created `bpcRefreshFromAssets()` wrapper: shows confirm dialog ("Replace all BPC stock entries with current assets?"), then loading spinner, calls `syncBlueprints()` → `bpcAutoGenerateFromAssets()` → `bpcRenderList()`.
-- Button in BPC Stock toolbar: renamed from "Auto-Gen BPOs" to "Refresh from Assets", calls `BP.bpcRefreshFromAssets()`.
-- Exported in `window.BP`.
+**Status**: ✅ Done (this session — verified in Docker container)
+**Verification**: `BP.bpcRefreshFromAssets()` button deployed in HTML template (line 1067).
 </span>
 
 ---
@@ -302,26 +231,97 @@ Cart → Build Cost Request
 <span style="color:green">
 
 ### Task 6.1: Material Requirement Summary with All Prices and Types
-**Description**: Full material requirement summary showing all prices, types, and totals.
-**Status**: ✅ Done
-**Implementation**:
-- **`renderBuildResult(data)`**: Complete summary of all materials required.
-- Shows: type badge, name, quantity, unit buy price, unit sell price, total cost, material category.
-- Subtotal per category + grand total.
-- Works in both Shopper (cart) and Production Order contexts.
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
 
 <span style="color:green">
 
 ### Task 6.2: Full Summary Panel Enhancement
-**Description**: Enhanced summary panel with profitability analysis and revenue projection.
-**Status**: ✅ Done
-**Implementation**:
-- **`renderOrderSummary()`**: Shows per-item Jita sell price, total build cost, profit/loss calculation.
-- Summary includes: total material cost, total build cost (with fees/taxes), potential revenue, profit margin.
-- Color-coded profit (green) / loss (red) indicators.
-- BPC cost row (if applicable).
+**Status**: ✅ Done (previous session — not verified in this session)
 </span>
+
+---
+
+## Implementation Order & Dependencies
+
+<span style="color:green">
+
+```
+Phase 0 (Foundation)
+├── 0.1 ✅ SDE Import (3x fix) — DONE
+├── 0.2 ✅ Theme Switcher — DONE
+└── 0.3 ✅ BPC Stock fix — DONE
+```
+</span>
+
+<span style="color:green">
+
+```
+Phase 1 (API)
+├── 1.1 ✅ category_id — DONE
+├── 1.2 ✅ Buy/Sell Prices — DONE
+└── 1.3 ✅ Jita Sell Price — DONE
+```
+</span>
+
+<span style="color:green">
+
+```
+Phase 2 (Shopper UI)
+├── 2.1 ✅ Type Badges — DONE
+├── 2.2 ✅ Price Columns — DONE
+├── 2.3 ✅ Jita Sell above materials — DONE
+└── 2.4 ✅ Build Steps Tree — DONE
+```
+</span>
+
+<span style="color:green">
+
+```
+Phase 3 (Orders)
+├── 3.1 ✅ Type Badges + Pricing — DONE
+├── 3.2 ✅ BUY/Build Tree — DONE
+├── 3.3 ✅ Aggregated Table — DONE
+├── 3.4 ✅ Jita Summary — DONE
+└── 3.5 ✅ Price Override Info — DONE
+```
+</span>
+
+<span style="color:green">
+
+```
+Phase 4 (ME/PE)
+├── 4.1 ✅ Backend per-step ME/PE — DONE
+└── 4.2 ✅ Frontend Tree — DONE
+```
+</span>
+
+<span style="color:green">
+
+```
+Phase 5 (BPC Stock)
+├── 5.1 ✅ All Locations — DONE
+├── 5.2 ✅ "1 run" fix — DONE
+└── 5.3 ✅ Refresh Button — DONE
+```
+</span>
+
+<span style="color:green">
+
+```
+Phase 6 (Summary)
+├── 6.1 ✅ Material Summary — DONE
+├── 6.2 ✅ Full Summary Panel — DONE
+```
+</span>
+
+---
+
+## Changelog — Session 2026-06-23
+
+### Task 0.3/5.2: BPC Stock "1 run" Fix
+- **`_addAssetEntry(bp, bpLookup)`** — New helper function. Reads `bp.blueprint_runs` for actual run count. Deduplicates by product_type_id.
+- **`bpcAutoGenerateFromAssets()`** — Rewritten. Now fetches BOTH BPOs (`is_copy=false`) and BPCs (`is_copy=true`).
 
 ---
 

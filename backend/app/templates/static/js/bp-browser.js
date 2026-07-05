@@ -35,6 +35,18 @@
         return Number(n).toLocaleString("en-US");
     }
 
+    /** Format integer quantity with dots as thousand separator (EVE compatible: 3.908.880) */
+    function _formatQty(n) {
+        if (n == null || isNaN(n)) return "0";
+        var s = Math.round(Number(n)).toString();
+        var out = "";
+        for (var i = 0; i < s.length; i++) {
+            if (i > 0 && (s.length - i) % 3 === 0) out += ".";
+            out += s[i];
+        }
+        return out;
+    }
+
     /**
      * Format ISK amount to readable string.
      * 123456789.42 → "123.46M ISK"
@@ -448,6 +460,87 @@
      * This ensures prices are available even if the auto-sync has not run yet.
      * Skips if prices were already fetched recently (within last 30 minutes).
      */
+    /** Format a Date/ISO string or Unix timestamp to a readable DE format */
+    function _formatTimestamp(ts) {
+        if (!ts) return "—";
+        var d = typeof ts === "number" ? new Date(ts) : new Date(ts);
+        if (isNaN(d.getTime())) return "—";
+        return d.toLocaleDateString("de-DE", {
+            day: "2-digit", month: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit",
+        });
+    }
+
+    /**
+     * Manual price refresh — called from the "Refresh Prices" navbar button.
+     * Unlike triggerMarketPriceRefresh(), this ignores the 30-min cache check
+     * and always forces a fresh sync from ESI.
+     */
+    async function manualPriceRefresh() {
+        var btn = document.getElementById("btnRefreshPrices");
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Aktualisiere...'; }
+        try {
+            console.log("[BP] Manual price refresh triggered...");
+            var resp = await fetch("/api/market/refresh", {
+                method: "POST",
+                credentials: "include",
+            });
+            if (resp.ok) {
+                // Backend is fire-and-forget — poll /api/market/refresh/status for completion
+                var btnEl = btn;
+                var pollCount = 0;
+                var maxPolls = 30; // 30 * 2s = 60s max wait
+                function pollStatus() {
+                    if (!btnEl || pollCount >= maxPolls) {
+                        if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-currency-dollar"></i> Refresh Prices'; }
+                        return;
+                    }
+                    fetch("/api/market/refresh/status", { credentials: "include" })
+                        .then(function (r) { return r.json(); })
+                        .then(function (statusData) {
+                            pollCount++;
+                            if (statusData.running === true) {
+                                // Still running — show progress dots
+                                var dots = "";
+                                for (var d = 0; d < (pollCount % 4); d++) dots += ".";
+                                if (btnEl) btnEl.innerHTML = '<i class="bi bi-arrow-repeat"></i> Sync' + dots;
+                                setTimeout(pollStatus, 2000);
+                            } else {
+                                // Done!
+                                _priceCache.savedAt = Date.now();
+                                _priceCache.lastFetched = new Date().toISOString();
+                                savePriceCache();
+                                renderConfigBar();
+                                if (typeof refreshOrderCosts === "function") refreshOrderCosts();
+                                if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = '<i class="bi bi-check-lg"></i> Aktualisiert!'; }
+                                setTimeout(function () {
+                                    if (btnEl) btnEl.innerHTML = '<i class="bi bi-currency-dollar"></i> Refresh Prices';
+                                }, 3000);
+                            }
+                        })
+                        .catch(function () {
+                            pollCount++;
+                            if (pollCount < maxPolls) {
+                                setTimeout(pollStatus, 2000);
+                            } else if (btnEl) {
+                                btnEl.disabled = false;
+                                btnEl.innerHTML = '<i class="bi bi-currency-dollar"></i> Refresh Prices';
+                            }
+                        });
+                }
+                setTimeout(pollStatus, 2000);
+            } else {
+                console.warn("[BP] Market price refresh failed:", resp.status);
+                alert("Price refresh fehlgeschlagen (HTTP " + resp.status + "). Bitte Server-Logs prüfen.");
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-currency-dollar"></i> Refresh Prices'; }
+            }
+        } catch (e) {
+            console.warn("[BP] Market price refresh error:", e.message);
+            alert("Price refresh Fehler: " + e.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-currency-dollar"></i> Refresh Prices'; }
+        }
+    }
+
     async function triggerMarketPriceRefresh() {
         // Check if we already have a recent price cache
         if (_priceCache.savedAt && (Date.now() - _priceCache.savedAt) < 1800000) {
@@ -663,6 +756,13 @@
     //  BLUEPRINT CATALOG (in-game-market-style — ALL products always visible)
     // ═══════════════════════════════════════════════════════════════
 
+    // ═══════════════════════════════════════════════════════════════
+    //  MARKET TREE (New — ESI Market Groups hierarchy)
+    // ═══════════════════════════════════════════════════════════════
+
+    // Expand/collapse state for market group nodes (keyed by path)
+    var _bpExpandedMarketNodes = {};
+
     async function loadBlueprintCatalog() {
         const container = document.getElementById("bpTreeContainer");
         const search = document.getElementById("bpSearchInput").value.trim();
@@ -674,8 +774,8 @@
             const data = await apiGet("/api/blueprints/catalog?" + params.toString());
             _bpTreeData = data;
             // Auto-expand tree nodes that contain search results
-            _expandTreeForSearch(search, data.categories);
-            renderBlueprintTree(data.categories);
+            _expandMarketTreeForSearch(search, data.categories);
+            renderMarketTree(data.categories);
             // Auto-generate BPC stock entries from asset BPOs after catalog loads
             bpcAutoGenerateFromAssets().catch(function(e) {
                 console.warn("[BP] bpcAutoGenerate after catalog load:", e.message);
@@ -684,6 +784,255 @@
             container.innerHTML = '<div class="text-center text-danger py-4">' +
                 '<i class="bi bi-exclamation-triangle"></i> Failed to load: ' + escHtml(e.message) +
                 '</div>';
+        }
+    }
+
+    /**
+     * Render the ESI Market Groups tree (replaces old Category→Group→Race tree).
+     * Each node has: market_group_id, name, children[], products[], races[]
+     *   - children: sub-market groups (recursive, variable depth)
+     *   - products: array of product dicts (only on leaf non-ship groups)
+     *   - races: array of {race_name, products[]} (only on leaf ship groups)
+     */
+    function renderMarketTree(categories) {
+        const container = document.getElementById("bpTreeContainer");
+        if (!categories || categories.length === 0) {
+            container.innerHTML = '<div class="text-center text-secondary py-4">' +
+                '<i class="bi bi-inbox"></i> No blueprints found.</div>';
+            return;
+        }
+
+        // Deep-clone so we never mutate the cached _bpTreeData
+        const cloned = JSON.parse(JSON.stringify(categories));
+
+        // ── Split products into normal (has BPO) and faction (BPC-only) ──
+        // Walk the tree, moving BPC-only items into a separate parallel structure
+        const normalRoots = [];
+        const factionRoots = [];
+
+        function _splitNode(node) {
+            const normal = { market_group_id: node.market_group_id, name: node.name, children: [], products: null, races: null };
+            const faction = { market_group_id: node.market_group_id, name: node.name, children: [], products: null, races: null };
+
+            // Recurse into children first
+            if (node.children && node.children.length > 0) {
+                for (const child of node.children) {
+                    const [n, f] = _splitNode(child);
+                    if (n) normal.children.push(n);
+                    if (f) faction.children.push(f);
+                }
+            }
+
+            // Handle products/races at this node
+            if (node.races && node.races.length > 0) {
+                const normalRaces = [];
+                const factionRaces = [];
+                for (const race of node.races) {
+                    const normalRace = { race_name: race.race_name, products: [] };
+                    const factionRace = { race_name: race.race_name, products: [] };
+                    for (const prod of (race.products || [])) {
+                        if (isBpcOnlyItem(prod.meta_group_id)) {
+                            factionRace.products.push(prod);
+                        } else {
+                            normalRace.products.push(prod);
+                        }
+                    }
+                    if (normalRace.products.length > 0) normalRaces.push(normalRace);
+                    if (factionRace.products.length > 0) factionRaces.push(factionRace);
+                }
+                if (normalRaces.length > 0) { normal.races = normalRaces; normal.children = null; }
+                if (factionRaces.length > 0) { faction.races = factionRaces; faction.children = null; }
+            } else if (node.products && node.products.length > 0) {
+                const normalProds = [];
+                const factionProds = [];
+                for (const prod of node.products) {
+                    if (isBpcOnlyItem(prod.meta_group_id)) {
+                        factionProds.push(prod);
+                    } else {
+                        normalProds.push(prod);
+                    }
+                }
+                if (normalProds.length > 0) { normal.products = normalProds; normal.children = null; }
+                if (factionProds.length > 0) { faction.products = factionProds; faction.children = null; }
+            }
+
+            // Only return non-empty nodes
+            const hasContent = function(n) {
+                return (n.products && n.products.length > 0) ||
+                       (n.races && n.races.length > 0) ||
+                       (n.children && n.children.length > 0);
+            };
+            return [hasContent(normal) ? normal : null, hasContent(faction) ? faction : null];
+        }
+
+        for (const root of cloned) {
+            const [n, f] = _splitNode(root);
+            if (n) normalRoots.push(n);
+            if (f) factionRoots.push(f);
+        }
+
+        // ── Render ──
+        const FACTION_KEY = "Faction/Pirate";
+        let html = '<div class="bp-tree">';
+
+        // 1) Normal roots (items that have BPOs)
+        for (const root of normalRoots) {
+            html += _renderMarketNode(root, root.name, 0);
+        }
+
+        // 2) Faction/Pirate root
+        if (factionRoots.length > 0) {
+            const isExpanded = _bpExpandedMarketNodes[FACTION_KEY] === true;
+            const arrow = isExpanded ? "bi-chevron-down" : "bi-chevron-right";
+
+            html += '<div class="bp-tree-category bp-tree-category-faction">' +
+                '<div class="bp-tree-cat-header" data-market-path="' + FACTION_KEY + '">' +
+                '<i class="bi ' + arrow + ' bp-tree-toggle me-1"></i>' +
+                '<span class="bp-tree-cat-name">' + FACTION_KEY + '</span>' +
+                '</div>';
+
+            if (isExpanded) {
+                html += '<div class="bp-tree-groups">';
+                for (const root of factionRoots) {
+                    html += _renderMarketNode(root, FACTION_KEY + "::" + root.name, 1);
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+    }
+
+    /**
+     * Recursively render a market group node.
+     * depth controls indent level; maxDepth caps race/product rendering depth.
+     */
+    function _renderMarketNode(node, path, depth) {
+        const isExpanded = _bpExpandedMarketNodes[path] === true;
+        const arrow = isExpanded ? "bi-chevron-down" : "bi-chevron-right";
+
+        // Count products visible under this node (including children)
+        function _countProds(n) {
+            let c = 0;
+            if (n.races) { for (const r of n.races) c += (r.products || []).length; }
+            else if (n.products) c += n.products.length;
+            if (n.children) { for (const ch of n.children) c += _countProds(ch); }
+            return c;
+        }
+        const prodCount = _countProds(node);
+
+        const hasExpandable = (node.children && node.children.length > 0) ||
+                              (node.races && node.races.length > 0) ||
+                              (node.products && node.products.length > 0);
+        const toggleIcon = hasExpandable
+            ? '<i class="bi ' + arrow + ' bp-tree-toggle me-1"></i>'
+            : '<span class="me-1" style="display:inline-block;width:1rem;"></span>';
+
+        let html = '<div class="bp-tree-market-node">' +
+            '<div class="bp-tree-market-header" data-market-path="' + escJs(path) + '">' +
+            toggleIcon +
+            '<span class="bp-tree-market-name">' + escHtml(node.name) + '</span>' +
+            (prodCount > 0 ? '<span class="bp-tree-prod-count ms-1">' + prodCount + '</span>' : '') +
+            '</div>';
+
+        if (isExpanded) {
+            if (node.children && node.children.length > 0) {
+                html += '<div class="bp-tree-market-children">';
+                for (const child of node.children) {
+                    html += _renderMarketNode(child, path + "::" + child.name, depth + 1);
+                }
+                html += '</div>';
+            } else if (node.races && node.races.length > 0) {
+                html += _renderRaces(node.races, path);
+            } else if (node.products && node.products.length > 0) {
+                html += renderProductList(node.products, path);
+            }
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function _renderRaces(races, parentPath) {
+        let html = '<div class="bp-tree-races">';
+        for (const race of races) {
+            const key = parentPath + "::" + race.race_name;
+            const isExpanded = _bpExpandedMarketNodes[key] === true;
+            const arrow = isExpanded ? "bi-chevron-down" : "bi-chevron-right";
+            const prodCount = race.products ? race.products.length : 0;
+
+            html += '<div class="bp-tree-race">' +
+                '<div class="bp-tree-race-header" data-market-path="' + escJs(key) + '">' +
+                '<i class="bi ' + arrow + ' bp-tree-toggle me-1"></i>' +
+                '<span class="bp-tree-race-name">' + escHtml(race.race_name) + '</span>' +
+                '<span class="bp-tree-prod-count ms-1">' + prodCount + '</span>' +
+                '</div>';
+            if (isExpanded && race.products) {
+                html += renderProductList(race.products, key);
+            }
+            html += '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /**
+     * Auto-expand market tree nodes that contain matching search results.
+     * When search is empty, reset all expanders (collapsed default).
+     */
+    function _expandMarketTreeForSearch(search, categories) {
+        if (!categories) return;
+
+        if (!search) {
+            _bpExpandedMarketNodes = {};
+            return;
+        }
+
+        const searchLower = search.toLowerCase();
+
+        function _walk(node, path) {
+            let hasMatch = false;
+
+            // Check products at this node (or in races)
+            if (node.races) {
+                for (const race of node.races) {
+                    for (const prod of (race.products || [])) {
+                        if (prod.product_name && prod.product_name.toLowerCase().indexOf(searchLower) >= 0) {
+                            hasMatch = true;
+                        }
+                    }
+                }
+            } else if (node.products) {
+                for (const prod of node.products) {
+                    if (prod.product_name && prod.product_name.toLowerCase().indexOf(searchLower) >= 0) {
+                        hasMatch = true;
+                    }
+                }
+            }
+
+            // Recurse into children
+            if (node.children) {
+                for (const child of node.children) {
+                    if (_walk(child, path + "::" + child.name)) {
+                        hasMatch = true;
+                    }
+                }
+            }
+
+            if (hasMatch) {
+                _bpExpandedMarketNodes[path] = true;
+            } else {
+                if (_bpExpandedMarketNodes[path] === undefined) {
+                    _bpExpandedMarketNodes[path] = false;
+                }
+            }
+            return hasMatch;
+        }
+
+        for (const root of categories) {
+            _walk(root, root.name);
         }
     }
 
@@ -1044,6 +1393,7 @@
                 (isInCart ? '<i class="bi bi-cart-check text-warning me-1" style="font-size:0.65rem;" title="In cart"></i>' : '') +
                 starHtml +
                 '<span class="bp-tree-product-name">' + escHtml(prod.product_name) + '</span>' +
+                (prod.is_reaction ? ' <span class="bp-reaction-badge" title="Reaction">R</span>' : '') +
                 (prod.meta_group_name ? ' <small class="text-secondary ms-1">' + escHtml(prod.meta_group_name) + '</small>' : '') +
                 (bpcOnly ? ' <span class="bp-bpc-only-badge">BPC only</span>' : '') +
                 '</div>' +
@@ -1087,6 +1437,31 @@
     // ── Tree Event Delegation ────────────────────────────────────────
 
     document.addEventListener("click", function (e) {
+        // ── MARKET TREE (new) ──
+
+        // Market group / Faction root / Race toggle (all use data-market-path)
+        const marketHeader = e.target.closest("[data-market-path]");
+        if (marketHeader) {
+            const path = marketHeader.getAttribute("data-market-path");
+            if (path) {
+                _bpExpandedMarketNodes[path] = _bpExpandedMarketNodes[path] === false ? true : false;
+                if (_bpTreeData && _bpTreeData.categories) {
+                    // Check if it looks like market tree (has market_group_id) or old tree
+                    var isMarketTree = _bpTreeData.categories.length > 0 &&
+                        (_bpTreeData.categories[0].market_group_id !== undefined ||
+                         _bpTreeData.categories[0].name !== undefined);
+                    if (isMarketTree) {
+                        renderMarketTree(_bpTreeData.categories);
+                    } else {
+                        renderBlueprintTree(_bpTreeData.categories);
+                    }
+                }
+                return;
+            }
+        }
+
+        // ── OLD TREE (kept for compatibility with /tree endpoint) ──
+
         // Category toggle
         const catHeader = e.target.closest(".bp-tree-cat-header");
         if (catHeader) {
@@ -1107,16 +1482,19 @@
             return;
         }
 
-        // Race toggle
+        // Old Race toggle (only applies when NOT using data-market-path)
         const raceHeader = e.target.closest(".bp-tree-race-header");
         if (raceHeader) {
-            const catName = raceHeader.getAttribute("data-cat");
-            const grpName = raceHeader.getAttribute("data-grp");
-            const raceName = raceHeader.getAttribute("data-race");
-            const key = catName + "::" + grpName + "::" + raceName;
-            _bpExpandedRaces[key] = _bpExpandedRaces[key] === false ? true : false;
-            if (_bpTreeData) renderBlueprintTree(_bpTreeData.categories);
-            return;
+            // Only handle old race headers (those WITHOUT data-market-path)
+            if (!raceHeader.hasAttribute("data-market-path")) {
+                const catName = raceHeader.getAttribute("data-cat");
+                const grpName = raceHeader.getAttribute("data-grp");
+                const raceName = raceHeader.getAttribute("data-race");
+                const key = catName + "::" + grpName + "::" + raceName;
+                _bpExpandedRaces[key] = _bpExpandedRaces[key] === false ? true : false;
+                if (_bpTreeData) renderBlueprintTree(_bpTreeData.categories);
+                return;
+            }
         }
 
         // Product header click (select product to show detail)
@@ -1141,10 +1519,37 @@
     //  PRODUCT SELECTION & DETAIL
     // ═══════════════════════════════════════════════════════════════
 
-    function findProductInTree(productTypeId) {
-        if (!_bpTreeData || !_bpTreeData.categories) return null;
-        for (const cat of _bpTreeData.categories) {
-            for (const grp of cat.groups) {
+    /**
+     * Search recursively through a market tree node and its children for a product.
+     * Works for both old (category→group→race) and new (market tree) formats.
+     */
+    function _findProductInNode(node, productTypeId) {
+        // Check products directly on this node
+        if (node.products) {
+            for (const prod of node.products) {
+                if (prod.product_type_id === productTypeId) return prod;
+            }
+        }
+        // Check races (ship subdivision)
+        if (node.races) {
+            for (const race of node.races) {
+                if (race.products) {
+                    for (const prod of race.products) {
+                        if (prod.product_type_id === productTypeId) return prod;
+                    }
+                }
+            }
+        }
+        // Recurse into children
+        if (node.children) {
+            for (const child of node.children) {
+                const found = _findProductInNode(child, productTypeId);
+                if (found) return found;
+            }
+        }
+        // Check groups (old format)
+        if (node.groups) {
+            for (const grp of node.groups) {
                 if (grp.has_races && grp.races) {
                     for (const race of grp.races) {
                         if (race.products) {
@@ -1159,6 +1564,15 @@
                     }
                 }
             }
+        }
+        return null;
+    }
+
+    function findProductInTree(productTypeId) {
+        if (!_bpTreeData || !_bpTreeData.categories) return null;
+        for (const entry of _bpTreeData.categories) {
+            const found = _findProductInNode(entry, productTypeId);
+            if (found) return found;
         }
         return null;
     }
@@ -1185,8 +1599,15 @@
         // Load full detail from API
         await loadProductDetail(foundProduct.blueprint_type_id);
 
-        // Re-render tree to highlight
-        renderBlueprintTree(_bpTreeData.categories);
+        // Re-render tree to highlight — use market tree if available
+        var isMarketTree = _bpTreeData.categories.length > 0 &&
+            (_bpTreeData.categories[0].market_group_id !== undefined ||
+             _bpTreeData.categories[0].name !== undefined);
+        if (isMarketTree) {
+            renderMarketTree(_bpTreeData.categories);
+        } else {
+            renderBlueprintTree(_bpTreeData.categories);
+        }
     }
 
     async function selectBlueprintSubMode(productTypeId, mode) {
@@ -1434,7 +1855,8 @@
 
             // Category badge — use category_id from backend data first, fallback to rawEntry
             var catId = m.category_id || (rawEntry && rawEntry.category_id) || null;
-            var badgeHtml = matCategoryBadge(catId);
+            var isReact = m.is_reaction === true;
+            var badgeHtml = matCategoryBadge(catId, isReact);
 
             // Check if this material has sub-steps (is itself buildable)
             var matSubStep = null;
@@ -1451,10 +1873,16 @@
             var rowId = 'bpMatRow_' + m.material_type_id;
             var subId = 'bpMatSub_' + m.material_type_id;
 
+            var matBuildLabel = '';
+            if (hasSubStep && matSubStep) {
+                matBuildLabel = matSubStep.is_reaction === true
+                    ? ' <span class="badge bg-danger" style="font-size:0.55rem;">REACT</span>'
+                    : ' <span class="badge bg-primary" style="font-size:0.55rem;">BAUBBAR</span>';
+            }
             html += '<div class="bp-material-row' + (hasSubStep ? ' bp-material-has-sub' : '') + '" id="' + rowId + '">' +
                 (hasSubStep ? '<span class="bp-material-expand" onclick="BP.toggleMatSubStep(' + m.material_type_id + ')" title="Aufklappen: Zwischenbau-Materialien"><i class="bi bi-chevron-right" id="bpMatChev_' + m.material_type_id + '"></i></span>' : '<span class="bp-material-expand"></span>') +
                 badgeHtml +
-                '<span class="bp-material-name">' + escHtml(m.material_name) + (hasSubStep ? ' <span class="badge bg-primary" style="font-size:0.55rem;">BAUBBAR</span>' : '') + '</span>' +
+                '<span class="bp-material-name">' + escHtml(m.material_name) + matBuildLabel + '</span>' +
                 (m.is_optional ? '<span class="badge bg-secondary" style="font-size:0.6rem;">Opt</span>' : '') +
                 '<span class="bp-material-base">×' + formatNumber(m.base_quantity) + '</span>' +
                 '<span class="bp-material-adjusted">' + formatNumber(m.adjusted_quantity) + '</span>' +
@@ -1478,7 +1906,7 @@
                     var sm = matSubStep.materials[smi];
                     var smRaw = getPrice(sm.material_type_id);
                     var smPrice = smRaw ? (smRaw.sell_price_min || smRaw.buy_price_max) : null;
-                    var smBadge = matCategoryBadge(sm.category_id);
+                    var smBadge = matCategoryBadge(sm.category_id, sm.is_reaction === true);
                     html += '<div class="bp-material-row ps-4" style="font-size:0.8rem; opacity:0.9;">' +
                         '<span class="bp-material-expand"></span>' +
                         smBadge +
@@ -1535,7 +1963,7 @@
 
                     // Category badge from aggregated material data (buildStepsData may have category_id if present)
                     var rmCatId = rm.category_id || (rmRaw && rmRaw.category_id) || null;
-                    var rmBadge = matCategoryBadge(rmCatId);
+                    var rmBadge = matCategoryBadge(rmCatId, rm.is_reaction === true);
 
                     html += '<div class="bp-material-row">' +
                         rmBadge +
@@ -1551,6 +1979,41 @@
             }
         }
 
+        // ── Summary: Total Material Cost vs Jita Sell ──
+        var _totalMatCost = 0;
+        for (var _tsi = 0; _tsi < data.materials.length; _tsi++) {
+            var _tm = data.materials[_tsi];
+            var _tmPrice = getEffectivePrice(_tm.material_type_id).price;
+            if (_tmPrice != null) {
+                _totalMatCost += _tmPrice * _tm.adjusted_quantity;
+            }
+        }
+
+        // Estimate installation cost (median station system cost ~5%)
+        var _INSTALL_PCT = 5;
+        var _installCost = Math.round(_totalMatCost * _INSTALL_PCT / 100);
+        var _totalWithInstall = _totalMatCost + _installCost;
+
+        html += '<div class="bp-detail-section mt-2 p-2" style="font-size:0.78rem;border:1px solid var(--bs-border-color);border-radius:4px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+            '<span><span class="text-secondary">Total Materialkosten: </span><span class="text-light fw-bold">' + formatIsk(_totalMatCost) + '</span>' +
+            ' <span class="text-secondary small">+ Installation (Ø ' + _INSTALL_PCT + '%): </span><span class="text-info fw-bold">' + formatIsk(_installCost) + '</span>' +
+            '</span><span><span class="text-secondary">Gesamt: </span><span class="text-light fw-bold" style="font-size:0.85rem;">' + formatIsk(_totalWithInstall) + '</span></span>' +
+            '</div>';
+        if (jitaSellPrice != null) {
+            var _profit = jitaSellPrice - _totalWithInstall;
+            var _profitPct = _totalWithInstall > 0 ? ((_profit / _totalWithInstall) * 100).toFixed(1) : 0;
+            var _profitColor = _profit >= 0 ? 'var(--t-success,#198754)' : 'var(--t-danger,#dc3545)';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;">' +
+                '<span class="text-secondary">Jita Sell: </span>' +
+                '<span style="color:' + _profitColor + ';font-weight:700;">' +
+                    (_profit >= 0 ? '+' : '') + formatIsk(_profit) +
+                    ' (' + (_profit >= 0 ? '+' : '') + _profitPct + '%)' +
+                ' <span class="text-secondary">→ </span><span class="text-success fw-bold">' + formatIsk(jitaSellPrice) + '</span></span>' +
+                '</div>';
+        }
+        html += '</div>';
+
         document.getElementById("bpMaterialsList").innerHTML = html;
         document.getElementById("bpTotalVolume").textContent =
             formatNumber(data.materials_total_volume || 0) + " m³";
@@ -1562,9 +2025,19 @@
     var _bstMeOverrides = {};  // key=bp_type_id+'_'+depth -> {me, te}
 
     function _renderBuildStepNode(step, depth) {
+        var isReaction = step.is_reaction === true;
         var isBuy = !step.sub_steps || step.sub_steps.length === 0;
-        var badgeClass = isBuy ? "bg-warning text-dark" : "bg-primary";
-        var badgeText = isBuy ? "BUY" : "Build";
+        var badgeClass, badgeText;
+        if (isBuy) {
+            badgeClass = "bg-warning text-dark";
+            badgeText = "BUY";
+        } else if (isReaction) {
+            badgeClass = "bg-danger";
+            badgeText = "REACT";
+        } else {
+            badgeClass = "bg-primary";
+            badgeText = "Build";
+        }
         var marginLeft = (depth * 16) + "px";
 
         var html = '<div class="bp-bst-node" style="margin-left:' + marginLeft + '; padding:2px 0;">';
@@ -1572,7 +2045,7 @@
         // Node header
         html += '<div class="d-flex align-items-center gap-1" style="cursor:pointer;" onclick="BP._bstToggle(this)">';
 
-        // Expand/collapse for Build nodes
+        // Expand/collapse for Build/React nodes
         if (!isBuy) {
             html += '<i class="bi bi-chevron-right bp-bst-chevron" style="font-size:0.65rem; width:12px;"></i>';
         } else {
@@ -1588,8 +2061,8 @@
         // Badge
         html += '<span class="badge ' + badgeClass + '" style="font-size:0.6rem;">' + badgeText + '</span>';
 
-        // ME/PE-Inputs fuer Build-Nodes
-        if (!isBuy && step.blueprint_type_id) {
+        // ME/PE-Inputs only for Manufacturing (Build) nodes — NOT for reactions
+        if (!isBuy && !isReaction && step.blueprint_type_id) {
             var _bstKey = (step.blueprint_type_id || 0) + '_' + depth;
             var _bstOvr = _bstMeOverrides[_bstKey] || {};
             var _bstMe = _bstOvr.me != null ? _bstOvr.me : (step.me != null ? step.me : 10);
@@ -1619,7 +2092,7 @@
                 var m = step.materials[i];
                 var priceInfo = getEffectivePrice(m.material_type_id);
                 var priceStr = priceInfo.price != null ? formatIsk(priceInfo.price) : '-';
-                var catBadge = matCategoryBadge(m.category_id);
+                var catBadge = matCategoryBadge(m.category_id, m.is_reaction === true);
                 html += '<div class="d-flex align-items-center gap-1" style="padding:1px 0; font-size:0.68rem;">' +
                     catBadge +
                     '<span>' + escHtml(m.material_name) + '</span>' +
@@ -1793,6 +2266,12 @@
             chevEl.style.transform = expanded ? "" : "rotate(90deg)";
             chevEl.style.transition = "transform 0.15s";
         }
+        // Persist expanded state on the material object (Bug 3 fix)
+        const order = _productionOrders[oi];
+        if (order && order.items[ii] && order.items[ii].materials[mi]) {
+            order.items[ii].materials[mi]._subExpanded = expanded ? false : true;
+            saveOrders();
+        }
     }
 
     function renderSkills(data) {
@@ -1892,29 +2371,48 @@
         try {
             var data = await apiGet("/api/blueprints/catalog?search=" + encodeURIComponent(query) + "&filter=all");
             // Flatten tree and filter T1 only
+            // The catalog tree uses { categories: [ { children: [ { children/races/products } } ] }
+            // Each category has 'children' (subgroups), NOT 'groups'
             var t1Products = [];
-            if (data.categories) {
-                for (var ci = 0; ci < data.categories.length; ci++) {
-                    var cat = data.categories[ci];
-                    if (cat.groups) {
-                        for (var gi = 0; gi < cat.groups.length; gi++) {
-                            var grp = cat.groups[gi];
-                            var races = grp.races || [grp];
-                            for (var ri = 0; ri < races.length; ri++) {
-                                var race = races[ri];
-                                if (race.products) {
-                                    for (var pi = 0; pi < race.products.length; pi++) {
-                                        var prod = race.products[pi];
-                                        // Only T1 blueprints can be invented
-                                        if (prod.tech_level === 1 || prod.tech_level == null) {
-                                            t1Products.push(prod);
-                                        }
+
+            /** Recursively walk tree nodes to find product leaves */
+            function _walkTreeNodes(nodes) {
+                if (!nodes) return;
+                for (var ni = 0; ni < nodes.length; ni++) {
+                    var node = nodes[ni];
+                    // If node has products directly, collect them
+                    if (node.products) {
+                        for (var pi = 0; pi < node.products.length; pi++) {
+                            var prod = node.products[pi];
+                            // Only T1 blueprints can be invented
+                            if (prod.tech_level === 1 || prod.tech_level == null) {
+                                t1Products.push(prod);
+                            }
+                        }
+                    }
+                    // If node has races (ship groups), recurse into races
+                    if (node.races) {
+                        for (var ri = 0; ri < node.races.length; ri++) {
+                            var race = node.races[ri];
+                            if (race.products) {
+                                for (var pi = 0; pi < race.products.length; pi++) {
+                                    var prod = race.products[pi];
+                                    if (prod.tech_level === 1 || prod.tech_level == null) {
+                                        t1Products.push(prod);
                                     }
                                 }
                             }
                         }
                     }
+                    // Recurse into children (subgroups)
+                    if (node.children) {
+                        _walkTreeNodes(node.children);
+                    }
                 }
+            }
+
+            if (data.categories) {
+                _walkTreeNodes(data.categories);
             }
 
             if (t1Products.length === 0) {
@@ -2931,6 +3429,11 @@
                         if (!item.build_cost) item.build_cost = null;
                         if (!item.materials) item.materials = [];
                         if (!item.expanded) item.expanded = false;
+                        // Initialize material decision to 'buy' if missing (Feature 1)
+                        for (const m of (item.materials || [])) {
+                            if (!m.decision) m.decision = 'buy';
+                            if (!m._priceMode) m._priceMode = 'sell';
+                        }
                     }
                 }
             } else {
@@ -3107,6 +3610,29 @@
             if (typeIds.length > 0) {
                 await fetchBatchPrices(typeIds);
             }
+
+            // Fetch build-steps for each item to enable inline sub-material display
+            // (needed for saved orders loaded from localStorage where _buildStepsData is not persisted)
+            for (var _bsi = 0; _bsi < order.items.length; _bsi++) {
+                var _bsItem = order.items[_bsi];
+                if (!_bsItem.blueprint_type_id) continue;
+                try {
+                    var _bsResp = await fetch(
+                        "/api/blueprints/" + _bsItem.blueprint_type_id + "/build-steps",
+                        { credentials: "include" }
+                    );
+                    if (_bsResp.ok) {
+                        var _bsData = await _bsResp.json();
+                        _bsItem._buildStepsData = _bsData;
+                    }
+                } catch (_bsErr) {
+                    console.warn("[BP] Build-steps fetch failed for", _bsItem.blueprint_type_id, _bsErr.message);
+                }
+            }
+            // Fetch prices for sub-material type IDs so inline lists show prices
+            if (order) {
+                await _fetchSubMaterialPrices(order);
+            }
         }
 
         renderOrders();
@@ -3251,6 +3777,13 @@
                         bpc_amortized_cost: bpcAmortizedCost,
                         bpc_cost_source: bpcCost ? bpcCost.cost_source : null,
                         build_time_seconds: apiItem.build_time_seconds || null,
+                        // EVE-correct job cost fields (from API)
+                        system_cost_amount: apiItem.system_cost_amount,
+                        job_gross_cost: apiItem.job_gross_cost,
+                        facility_tax: apiItem.facility_tax,
+                        scc_surcharge: apiItem.scc_surcharge,
+                        total_job_cost: apiItem.total_job_cost,
+                        eiv: apiItem.eiv,
                     };
                     // Also store build time on the order item itself for renderOrderDetail
                     if (apiItem.build_time_seconds) {
@@ -3279,12 +3812,11 @@
                             total_cost: mat.total_cost,
                             price_source: mat.price_source,
                             is_optional: mat.is_optional || false,
-                            // Decision: BUY if material is a raw mineral/commodity (no blueprint to build it)
-                            // or if buying is cheaper than building sub-components.
-                            // category_id 4 = Material (minerals, ore) → always buy
-                            // category_id 42 = Asteroid (ore) → always buy
-                            // If no unit_price → assume build (sub-component)
-                            // If unit_price exists and buyCost is less → buy
+                            is_reaction: mat.is_reaction === true,
+                            is_buildable: mat.is_buildable === true,
+                            volume: mat.volume || 0,
+                            total_volume: mat.total_volume || 0,
+                            _priceMode: 'sell',  // 'sell' = use sell_price, 'buy' = use buy_price
                             decision: (function(m, bc, bp) {
                                 var RAW_BUY_CATEGORIES = [4, 42, 43, 53]; // Mineral, Asteroid, Ice, Biochemicals
                                 if (RAW_BUY_CATEGORIES.indexOf(m.category_id) !== -1) return "buy";
@@ -3294,11 +3826,50 @@
                         };
                     });
                 }
+                // Fetch build-steps for each order item to enable inline sub-material display
+                for (const orderItem of order.items) {
+                    if (!orderItem.blueprint_type_id) continue;
+                    try {
+                        const bstepsResp = await fetch(
+                            "/api/blueprints/" + orderItem.blueprint_type_id + "/build-steps",
+                            { credentials: "include" }
+                        );
+                        if (bstepsResp.ok) {
+                            const bstepsData = await bstepsResp.json();
+                            orderItem._buildStepsData = bstepsData;
+                        }
+                    } catch (err) {
+                        console.warn("[BP] Build-steps fetch failed for", orderItem.blueprint_type_id, err.message);
+                    }
+                }
+                // Batch-fetch prices for sub-material type IDs so inline sub-material lists show prices
+                await _fetchSubMaterialPrices(order);
             } else {
                 console.warn("[BP] Build-cost API returned", resp.status, "- using defaults");
             }
         } catch (err) {
             console.warn("[BP] Build-cost API call failed:", err.message);
+        }
+    }
+
+    /** Collect all sub-material type IDs from build-steps data and batch-fetch their market prices */
+    async function _fetchSubMaterialPrices(order) {
+        var subTypeIds = [];
+        for (var i = 0; i < order.items.length; i++) {
+            var item = order.items[i];
+            if (!item._buildStepsData || !item._buildStepsData.steps || !item._buildStepsData.steps[0]) continue;
+            var topStep = item._buildStepsData.steps[0];
+            for (var ssi = 0; ssi < (topStep.sub_steps || []).length; ssi++) {
+                var subStep = topStep.sub_steps[ssi];
+                if (subStep.materials) {
+                    for (var smi = 0; smi < subStep.materials.length; smi++) {
+                        subTypeIds.push(subStep.materials[smi].material_type_id);
+                    }
+                }
+            }
+        }
+        if (subTypeIds.length > 0) {
+            await fetchBatchPrices(subTypeIds);
         }
     }
 
@@ -3651,6 +4222,11 @@
         const itemsContainer = document.getElementById("bpOrderItemsContainer");
         if (!itemsContainer) return;
 
+        // Save scroll position of the inner .bp-order-materials container
+        // (it has max-height:300px; overflow-y:auto in CSS)
+        var _oldMatContainer = itemsContainer.querySelector('.bp-order-materials');
+        var _savedScrollTop = _oldMatContainer ? _oldMatContainer.scrollTop : 0;
+
         if (!order.items || order.items.length === 0) {
             itemsContainer.innerHTML = '<div class="bp-order-placeholder">' +
                 '<i class="bi bi-inbox"></i><br>No items in this order.</div>';
@@ -3675,7 +4251,12 @@
             html += '<span class="bp-order-prod-name" title="' + escHtml(item.product_name) + '">' +
                 escHtml(item.product_name) + '</span>';
 
-            html += '<span class="bp-order-prod-runs">' + (item.runs || 1) + '</span>';
+            // Runs edit (inline input like ME/PE)
+            html += '<span class="bp-order-prod-runs" title="Anzahl Runs">' +
+                'R<input class="bp-order-runs-input" type="number" min="1" max="1000" value="' + (item.runs || 1) + '"' +
+                ' onclick="event.stopPropagation()"' +
+                ' onchange="event.stopPropagation();BP.updateOrderItemRuns(' + _activeOrderIndex + ',' + i + ',this.value)"' +
+                '></span>';
 
             // ME edit (inline input, stops click propagation so row doesn't toggle)
             html += '<span class="bp-order-prod-me" title="Material Efficiency">' +
@@ -3744,7 +4325,8 @@
                     const m = item.materials[mi];
                     const isBuild = m.decision === 'build';
                     const isBuy = m.decision === 'buy';
-                    const badgeHtml = matCategoryBadge(m.category_id);
+                    const mIsReaction = m.is_reaction === true;
+                    const badgeHtml = matCategoryBadge(m.category_id, mIsReaction);
 
                     // Sub-Step aus Build-Steps-Daten suchen (falls geladen)
                     var _ordSubStep = null;
@@ -3757,7 +4339,7 @@
                             }
                         }
                     }
-                    var _hasOrdSub = _ordSubStep !== null && isBuildable(m);
+                    var _hasOrdSub = _ordSubStep !== null;
                     var _ordSubId = 'bpOrdSub_' + i + '_' + mi;
                     var _ordChevId = 'bpOrdChev_' + i + '_' + mi;
 
@@ -3802,47 +4384,125 @@
                     html += '<span class="bp-mat-col-buy"' + (_buyCheap ? ' style="' + _cheapSty + '"' : '') + '>' +
                         (buyPrice != null && buyPrice > 0 ? formatIsk(buyPrice) : '-') + '</span>';
 
-                    // Effective price
+                    // Effective price — use _priceMode to select sell vs buy
+                    var _priceMode = m._priceMode || 'sell';
+                    var _modePrice = _priceMode === 'sell' ? sellPrice : buyPrice;
+                    if (_modePrice == null) _modePrice = _priceMode === 'sell' ? buyPrice : sellPrice; // fallback to other
                     var priceInfo = getEffectivePrice(m.material_type_id);
-                    var unitPrice = (priceInfo.price != null) ? priceInfo.price : (m.unit_price || 0);
-                    html += '<span class="bp-mat-col-price" title="' + escHtml(priceInfo.source) + '">' +
+                    var unitPrice = (_modePrice != null) ? _modePrice : (priceInfo.price != null ? priceInfo.price : (m.unit_price || 0));
+                    var _priceSrcLabel = _priceMode === 'sell' ? 'Sell' : 'Buy';
+                    var _priceSrcShort = _priceMode === 'sell' ? 'S' : 'B';
+                    var _priceSrcColor = _priceMode === 'sell' ? '#28a745' : '#5b8dee';
+                    html += '<span class="bp-mat-col-price" title="' + _priceSrcLabel + ' price (Jita ' + _priceSrcLabel + ')">' +
+                        '<span style="font-size:0.55rem;font-weight:700;color:' + _priceSrcColor + ';margin-right:2px;">[' + _priceSrcShort + ']</span>' +
                         (unitPrice > 0 ? formatIsk(unitPrice) : '-') +
                         '</span>';
 
-                    // Total cost
-                    var totalCost = isBuy ? (unitPrice * m.total_quantity) : (m.total_cost || 0);
+                    // Total cost — for 'build' decisions, calculate from sub-materials + installation
+                    var totalCost = 0;
+                    if (isBuild && _hasOrdSub && _ordSubStep) {
+                        // Calculate from sub-materials at their chosen price mode
+                        for (var _smIdx = 0; _smIdx < _ordSubStep.materials.length; _smIdx++) {
+                            var _smm = _ordSubStep.materials[_smIdx];
+                            var _smSell = getPrice(_smm.material_type_id);
+                            var _smSellP = _smSell ? _smSell.sell_price_min : null;
+                            var _smBuyP = _smSell ? _smSell.buy_price_max : null;
+                            var _smMode = _smm._priceMode || 'sell';
+                            var _smUnit = _smMode === 'sell' ? (_smSellP || _smBuyP) : (_smBuyP || _smSellP);
+                            totalCost += (_smUnit || 0) * _smm.total_quantity;
+                        }
+                        // Add ME-dependent installation cost: ME10 = 0%, ME0 = 20%
+                        var _meLevel = (item.me != null ? item.me : 10) / 10;
+                        var _installMultiplier = 0.20 * (1 - _meLevel);
+                        totalCost = Math.round(totalCost * (1 + _installMultiplier));
+                    } else if (isBuild) {
+                        totalCost = m.total_cost || 0;
+                    } else {
+                        totalCost = unitPrice * m.total_quantity;
+                    }
                     html += '<span class="bp-mat-col-total">' +
                         (totalCost > 0 ? formatIsk(totalCost) : '-') +
                         '</span>';
 
-                    // Toggle button
-                    var _canBuild = isBuildable(m);
+                    // Decision buttons: 🔨 (build/react) + $ (buy) + S/B (sell/buy price mode)
+                    var _buildIcon = mIsReaction ? 'R' : '\uD83D\uDD28';
+                    var _priceModeSell = _priceMode === 'sell';
+                    var _matBuildable = isBuildable(m);
                     html += '<span class="bp-mat-col-action">' +
-                        '<button class="btn btn-sm bp-btn-toggle ' + (isBuild && _canBuild ? 'btn-build' : 'btn-outline-secondary') +
-                        '"' + (_canBuild
-                            ? ' onclick="event.stopPropagation();BP.toggleOrderMaterial(' + _activeOrderIndex + ',' + i + ',' + mi + ')"'
-                            : ' disabled title="Rohstoff ? nicht baubar" style="opacity:0.35;cursor:not-allowed;"') + '>' +
-                        'B</button>' +
+                        // Build/React toggle (disabled for non-buildable materials)
+                        '<button class="btn btn-sm bp-btn-toggle ' + (isBuild ? (mIsReaction ? 'btn-react' : 'btn-build') : 'btn-outline-secondary') +
+                        '" ' + (!_matBuildable ? 'disabled style="opacity:0.35;cursor:not-allowed;"' : '') +
+                        ' onclick="event.stopPropagation();BP.toggleOrderMaterial(' + _activeOrderIndex + ',' + i + ',' + mi + ')"' +
+                        ' title="' + (!_matBuildable ? 'Cannot build this material' : 'Build this material (shift to build from sub-materials)') + '">' +
+                        _buildIcon + '</button>' +
+                        // Buy toggle
                         '<button class="btn btn-sm bp-btn-toggle ' + (isBuy ? 'btn-buy' : 'btn-outline-secondary') +
                         '" onclick="event.stopPropagation();BP.toggleOrderMaterial(' + _activeOrderIndex + ',' + i + ',' + mi + ',true)" title="Buy this material">' +
-                        'Y</button>' +
+                        '\u0024</button>' +
+                        // Sell/Buy price mode toggle
+                        '<button class="btn btn-sm bp-btn-toggle ' + (_priceModeSell ? 'btn-price-mode' : 'btn-outline-secondary') +
+                        '" onclick="event.stopPropagation();BP.toggleMaterialPriceMode(' + _activeOrderIndex + ',' + i + ',' + mi + ')" title="Use sell price">' +
+                        'S</button>' +
+                        '<button class="btn btn-sm bp-btn-toggle ' + (!_priceModeSell ? 'btn-price-mode' : 'btn-outline-secondary') +
+                        '" onclick="event.stopPropagation();BP.toggleMaterialPriceMode(' + _activeOrderIndex + ',' + i + ',' + mi + ',true)" title="Use buy price">' +
+                        'B</button>' +
                         '</span>';
 
                     html += '</div>'; // /mat-row
 
                     // Inline Sub-Material-Liste (ausgeklappt per Chevron)
                     if (_hasOrdSub && _ordSubStep && _ordSubStep.materials && _ordSubStep.materials.length > 0) {
-                        html += '<div id="' + _ordSubId + '" style="display:none;padding-left:36px;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.04);">';
-                        html += '<div style="font-size:0.6rem;color:var(--t-text-dim);display:grid;grid-template-columns:24px 1fr 70px 80px;gap:4px;padding:2px 4px;text-transform:uppercase;letter-spacing:0.05em;">' +
-                            '<span></span><span>Sub-Material</span><span style="text-align:right">Qty</span><span style="text-align:right">Preis</span></div>';
+                        var _ordSubPurch = isBuild && m._subBuyAll !== false; // sub-materials bought if parent = build + user didn't toggle
+                        // Bug 3: Use persisted _subExpanded state so re-render doesn't collapse
+                        var _subExpanded = m._subExpanded === true;
+                        var _subDisplay = _subExpanded ? 'block' : 'none';
+
+                        html += '<div id="' + _ordSubId + '" style="display:' + _subDisplay + ';padding-left:36px;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.04);">';
+                        // Extended header with ME and Price columns (Bug 2)
+                        html += '<div style="font-size:0.6rem;color:var(--t-text-dim);display:grid;grid-template-columns:24px 1fr 60px 55px 80px 80px 80px 85px;gap:4px;padding:2px 4px;text-transform:uppercase;letter-spacing:0.05em;">' +
+                            '<span></span><span>Sub-Material</span><span style="text-align:right">Qty</span>' +
+                            '<span style="text-align:right">ME</span>' +
+                            '<span style="text-align:right">Sell</span><span style="text-align:right">Buy</span>' +
+                            '<span style="text-align:right">Price</span><span style="text-align:center">Mode</span></div>';
                         for (var _smi2 = 0; _smi2 < _ordSubStep.materials.length; _smi2++) {
                             var _sm2 = _ordSubStep.materials[_smi2];
-                            var _smPi = getEffectivePrice(_sm2.material_type_id);
-                            html += '<div style="font-size:0.72rem;display:grid;grid-template-columns:24px 1fr 70px 80px;gap:4px;padding:2px 4px;align-items:center;">' +
-                                '<span style="text-align:center;">' + matCategoryBadge(_sm2.category_id) + '</span>' +
+                            var _smSellPr = _sm2.sell_price_per_unit;
+                            if (_smSellPr == null) { var _smPc = getPrice(_sm2.material_type_id); if (_smPc) _smSellPr = _smPc.sell_price_min; }
+                            var _smBuyPr = _sm2.buy_price_per_unit;
+                            if (_smBuyPr == null) { var _smPc2 = getPrice(_sm2.material_type_id); if (_smPc2) _smBuyPr = _smPc2.buy_price_max; }
+                            var _smMode = _sm2._priceMode || 'sell';
+                            var _smModePr = _smMode === 'sell' ? (_smSellPr || _smBuyPr) : (_smBuyPr || _smSellPr);
+                            var _smModeSell = _smMode === 'sell';
+                            // ME for sub-material (Bug 2)
+                            var _smME = _sm2._me != null ? _sm2._me : 10;
+                            // Effective price label + total
+                            var _priceSrcLabel2 = _smMode === 'sell' ? 'Sell' : 'Buy';
+                            html += '<div style="font-size:0.72rem;display:grid;grid-template-columns:24px 1fr 60px 55px 80px 80px 80px 85px;gap:4px;padding:2px 4px;align-items:center;">' +
+                                '<span style="text-align:center;">' + matCategoryBadge(_sm2.category_id, _sm2.is_reaction === true) + '</span>' +
                                 '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(_sm2.material_name) + '">' + escHtml(_sm2.material_name) + '</span>' +
-                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">?' + formatNumber(_sm2.total_quantity) + '</span>' +
-                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">' + (_smPi.price ? formatIsk(_smPi.price) : '-') + '</span>' +
+                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">' + formatNumber(_sm2.total_quantity) + '</span>' +
+                                // ME input
+                                '<span><input type="number" min="0" max="10" value="' + _smME + '"' +
+                                ' onclick="event.stopPropagation()"' +
+                                ' onchange="event.stopPropagation();' +
+                                'var _o=_productionOrders[' + _activeOrderIndex + '].items[' + i + ']._buildStepsData.steps[0].sub_steps[' + _ssi + '].materials[' + _smi2 + '];' +
+                                'if(_o){_o._me=parseInt(this.value)||10;}' +
+                                'saveOrders();recalcOrderItem(_productionOrders[' + _activeOrderIndex + '],' + i + ');' +
+                                'BP.renderOrderDetail();"' +
+                                ' style="width:40px;font-size:0.62rem;padding:1px 2px;border-radius:2px;border:1px solid rgba(255,255,255,0.12);background:transparent;color:#ccc;text-align:right;"></span>' +
+                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">' + (_smSellPr != null && _smSellPr > 0 ? formatIsk(_smSellPr) : '-') + '</span>' +
+                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;">' + (_smBuyPr != null && _smBuyPr > 0 ? formatIsk(_smBuyPr) : '-') + '</span>' +
+                                // Effective price with visible Sell/Buy label
+                                '<span style="text-align:right;font-family:monospace;font-size:0.7rem;font-weight:600;" title="' + _priceSrcLabel2 + ' price (Jita ' + _priceSrcLabel2 + ')">' +
+                                '<span style="font-size:0.50rem;font-weight:700;color:' + (_smMode === 'sell' ? '#28a745' : '#5b8dee') + ';margin-right:1px;">' + (_smMode === 'sell' ? '[S]' : '[B]') + '</span>' +
+                                (_smModePr != null && _smModePr > 0 ? formatIsk(_smModePr) : '-') + '</span>' +
+                                // S/B price mode toggle for sub-material
+                                '<span style="text-align:center;display:flex;gap:2px;justify-content:center;">' +
+                                '<button class="btn btn-sm bp-btn-toggle ' + (_smModeSell ? 'btn-price-mode' : 'btn-outline-secondary') + '" style="font-size:0.55rem;padding:0 4px;line-height:1.2;"' +
+                                ' onclick="event.stopPropagation();BP.toggleOrderMatPriceMode(' + _activeOrderIndex + ',' + i + ',' + mi + ',' + _smi2 + ')" title="Use sell price">S</button>' +
+                                '<button class="btn btn-sm bp-btn-toggle ' + (!_smModeSell ? 'btn-price-mode' : 'btn-outline-secondary') + '" style="font-size:0.55rem;padding:0 4px;line-height:1.2;"' +
+                                ' onclick="event.stopPropagation();BP.toggleOrderMatPriceMode(' + _activeOrderIndex + ',' + i + ',' + mi + ',' + _smi2 + ',true)" title="Use buy price">B</button>' +
+                                '</span>' +
                                 '</div>';
                         }
                         html += '</div>';
@@ -3874,27 +4534,16 @@
                     '</div>';
             }
 
-            // ── Build Steps Tree (per item, collapsible) ──
-            if (expanded && item.blueprint_type_id) {
-                var stepsContainerId = 'bpOrderBst_' + i;
-                var stepsExpanded = item._buildStepsExpanded || false;
-                html += '<div class="bp-order-bst-section" style="padding-left:8px; margin-top:2px;">' +
-                    '<div class="d-flex align-items-center gap-1" style="font-size:0.7rem; cursor:pointer;"' +
-                    ' onclick="BP.toggleOrderBuildSteps(' + _activeOrderIndex + ',' + i + ')">' +
-                    '<i class="bi ' + (stepsExpanded && item._buildStepsData ? 'bi-chevron-down' : 'bi-chevron-right') + '" style="font-size:0.6rem;"></i>' +
-                    '<span class="text-secondary">Build Steps</span>' +
-                    (item._buildStepsLoading ? '<span class="spinner-border spinner-border-sm ms-1" style="width:10px;height:10px;"></span>' : '') +
-                    (item._buildStepsData && !stepsExpanded ? '<span class="text-secondary ms-1 small">(' + (item._buildStepsData.steps ? item._buildStepsData.steps.reduce(function(acc, s) { return acc + (s.sub_steps ? s.sub_steps.length : 0); }, 0) : 0) + ' sub-steps)</span>' : '') +
-                    '</div>' +
-                    '<div id="' + stepsContainerId + '" class="bp-bst-children" style="' + (stepsExpanded ? '' : 'display:none;') + 'margin-left:4px; border-left:1px solid rgba(255,255,255,0.06); padding-left:8px;">' +
-                    (item._buildStepsData && stepsExpanded ? _renderBuildStepsTreeForOrder(item._buildStepsData) : '') +
-                    '</div>' +
-                    '</div>';
-            }
         }
 
         html += '</div>'; // /bp-order-materials
         itemsContainer.innerHTML = html;
+
+        // Restore scroll position of the inner .bp-order-materials container
+        var _newMatContainer = itemsContainer.querySelector('.bp-order-materials');
+        if (_newMatContainer) {
+            _newMatContainer.scrollTop = _savedScrollTop;
+        }
 
         // ── Aggregated Materials Table ──
         renderOrderAggregatedMaterials();
@@ -3936,12 +4585,17 @@
                         prices: [],
                         sell_price: null,
                         buy_price: null,
+                        priceModeCount: { sell: 0, buy: 0 },
+                        volume: m.volume || 0,  // per-unit volume
                     };
                 }
                 var entry = aggMap[id];
                 var qty = m.total_quantity || 0;
                 var priceInfo = getEffectivePrice(m.material_type_id);
                 var unitPrice = (priceInfo.price != null) ? priceInfo.price : (m.unit_price || 0);
+                // Track price mode for mode toggle display
+                var _matPriceMode = m._priceMode || 'sell';
+                entry.priceModeCount[_matPriceMode] = (entry.priceModeCount[_matPriceMode] || 0) + 1;
 
                 // Track sell/buy prices
                 if (m.sell_price_per_unit != null) entry.sell_price = m.sell_price_per_unit;
@@ -3956,13 +4610,56 @@
                 }
 
                 if (m.decision === "build") {
-                    entry.build_qty += qty;
-                    entry.build_cost += m.total_cost || 0;
+                    // Bug 4: Decompose "build" materials into their leaf sub-materials for the aggregated view
+                    var subMats = _getBuildSubMaterials(item, m.material_type_id, qty);
+                    if (subMats.length > 0) {
+                        // Add each sub-material to the buy list (they need to be purchased)
+                        for (var smi = 0; smi < subMats.length; smi++) {
+                            var sm = subMats[smi];
+                            if (!aggMap[sm.type_id]) {
+                                aggMap[sm.type_id] = {
+                                    name: sm.name,
+                                    category_id: sm.category_id,
+                                    build_qty: 0,
+                                    buy_qty: 0,
+                                    build_cost: 0,
+                                    buy_cost: 0,
+                                    prices: [],
+                                    sell_price: sm.sell_price_per_unit,
+                                    buy_price: sm.buy_price_per_unit,
+                                    priceModeCount: { sell: 0, buy: 0 },
+                                    volume: sm.volume || 0,
+                                };
+                            }
+                            var smEntry = aggMap[sm.type_id];
+                            smEntry.buy_qty += sm.qty;
+                            var smPriceInfo = getEffectivePrice(sm.type_id);
+                            var smUnitPrice = (smPriceInfo.price != null) ? smPriceInfo.price : 0;
+                            if (sm.unit_price && sm.unit_price > 0) smUnitPrice = sm.unit_price;
+                            smEntry.buy_cost += smUnitPrice * sm.qty;
+                            if (smUnitPrice > 0) smEntry.prices.push(smUnitPrice);
+                            // Track sell/buy prices
+                            if (sm.sell_price_per_unit != null) smEntry.sell_price = sm.sell_price_per_unit;
+                            else if (smEntry.sell_price === null) {
+                                var smCp = getPrice(sm.type_id);
+                                if (smCp && smCp.sell_price_min != null) smEntry.sell_price = smCp.sell_price_min;
+                            }
+                            if (sm.buy_price_per_unit != null) smEntry.buy_price = sm.buy_price_per_unit;
+                            else if (smEntry.buy_price === null) {
+                                var smCp2 = getPrice(sm.type_id);
+                                if (smCp2 && smCp2.buy_price_max != null) smEntry.buy_price = smCp2.buy_price_max;
+                            }
+                        }
+                    } else {
+                        // No build-steps data — show as direct build material
+                        entry.build_qty += qty;
+                        entry.build_cost += m.total_cost || 0;
+                    }
                 } else {
                     entry.buy_qty += qty;
                     entry.buy_cost += unitPrice * qty;
                 }
-                if (unitPrice > 0) {
+                if (unitPrice > 0 && m.decision !== 'build') {
                     entry.prices.push(unitPrice);
                 }
             }
@@ -4001,6 +4698,7 @@
             '<span class="bp-mat-col-price">Avg</span>' +
             '<span class="bp-mat-col-total">Total</span>' +
             '<span style="font-size:0.6rem;color:#777;text-align:center;padding:0 2px;">Override</span>' +
+            '<span class="bp-mat-col-action" style="font-size:0.55rem;color:#555;text-transform:uppercase;">Build/Buy / Price</span>' +
             '</div>';
 
         for (var ki = 0; ki < ids.length; ki++) {
@@ -4008,7 +4706,7 @@
             var totalQty = e.build_qty + e.buy_qty;
             var totalCost = e.build_cost + e.buy_cost;
             var rowClass = e.buy_qty > e.build_qty ? " mat-buy" : " mat-build";
-            var badgeHtml = matCategoryBadge(e.category_id);
+            var badgeHtml = matCategoryBadge(e.category_id, e.is_reaction === true);
             html += '<div class="bp-order-mat-row' + rowClass + '">';
             html += '<span class="bp-mat-col-badge">' + badgeHtml + '</span>';
             html += '<span class="bp-mat-col-name" title="' + escHtml(e.name) + '">' + escHtml(e.name) + '</span>';
@@ -4017,11 +4715,17 @@
             html += '<span class="bp-mat-col-qty" style="text-align:right;font-weight:600;">' + formatNumber(totalQty) + '</span>';
             html += '<span class="bp-mat-col-sell">' + (e.sell_price > 0 ? formatIsk(e.sell_price) : '-') + '</span>';
             html += '<span class="bp-mat-col-buy">' + (e.buy_price > 0 ? formatIsk(e.buy_price) : '-') + '</span>';
-            html += '<span class="bp-mat-col-price">' + (e.avg_price > 0 ? formatIsk(e.avg_price) : '-') + '</span>';
+            html += '<span class="bp-mat-col-price" title="' + (_aggPriceModeSell ? 'Jita Sell price' : 'Jita Buy price') + '">' +
+                '<span style="font-size:0.55rem;font-weight:700;color:' + (_aggPriceModeSell ? '#28a745' : '#5b8dee') + ';margin-right:1px;">' + (_aggPriceModeSell ? '[S]' : '[B]') + '</span>' +
+                (e.avg_price > 0 ? formatIsk(e.avg_price) : '-') + '</span>';
             html += '<span class="bp-mat-col-total">' + (totalCost > 0 ? formatIsk(totalCost) : '-') + '</span>';
             var _tid = parseInt(ids[ki]);
             var _cp = getPrice(_tid);
             var _ov = (_cp && _cp.override_price != null) ? _cp.override_price : null;
+            // Determine predominant price mode for visual highlighting
+            var _aggSellCount = e.priceModeCount ? (e.priceModeCount.sell || 0) : 0;
+            var _aggBuyCount = e.priceModeCount ? (e.priceModeCount.buy || 0) : 0;
+            var _aggPriceModeSell = _aggSellCount >= _aggBuyCount;
             html += '<span style="display:flex;align-items:center;gap:2px;">' +
                 '<input type="number" id="bpAggOv_' + _tid + '" min="0" step="0.01"' +
                 ' value="' + (_ov != null ? _ov.toFixed(2) : '') + '"' +
@@ -4029,13 +4733,153 @@
                 ' title="Preis-Override setzen (Enter). Leer lassen + Enter zum L?schen."' +
                 ' style="width:60px;font-size:0.62rem;padding:1px 4px;border-radius:3px;border:1px solid rgba(255,255,255,' + (_ov != null ? '0.35' : '0.12') + ');background:' + (_ov != null ? 'rgba(255,193,7,0.12)' : 'transparent') + ';color:' + (_ov != null ? '#ffc107' : '#aaa') + ';"' +
                 ' onkeydown="if(event.key===\'Enter\'){var v=parseFloat(this.value);BP.setAggOverride(' + _tid + ',isNaN(v)||this.value===\'\' ?null:v);}">' +
+                '</span>' +
+                '<span class="bp-mat-col-action" style="display:flex;gap:2px;justify-content:center;flex-wrap:nowrap;">' +
+                // Build/Buy override — disabled for non-buildable categories (minerals, PI, etc.)
+                (function(_catId) {
+                    var _aggBuildable = isBuildable({ category_id: _catId });
+                    return '<button class="btn btn-sm bp-btn-toggle ' + (_aggBuildable ? 'btn-build' : 'btn-outline-secondary') + '" style="font-size:0.55rem;padding:0 4px;line-height:1.2;"' +
+                        (!_aggBuildable ? ' disabled style="opacity:0.35;cursor:not-allowed;"' : '') +
+                        ' onclick="event.stopPropagation();BP.setAggOrderMaterialDecision(' + _tid + ',\'build\')" title="' + (!_aggBuildable ? 'Kann nicht gebaut werden' : 'Alle Items dieses Materials auf BUILD setzen') + '">' +
+                        '\uD83D\uDD28</button>' +
+                        '<button class="btn btn-sm bp-btn-toggle btn-buy" style="font-size:0.55rem;padding:0 4px;line-height:1.2;"' +
+                        ' onclick="event.stopPropagation();BP.setAggOrderMaterialDecision(' + _tid + ',\'buy\')" title="Alle Items dieses Materials auf BUY setzen">' +
+                        '\u0024</button>';
+                })(e.category_id) +
+                // Price mode S/B toggle
+                '<span style="width:1px;height:14px;background:rgba(255,255,255,0.1);margin:0 2px;"></span>' +
+                '<button class="btn btn-sm bp-btn-toggle ' + (_aggPriceModeSell ? 'btn-price-mode' : 'btn-outline-secondary') + '" style="font-size:0.55rem;padding:0 4px;line-height:1.2;"' +
+                ' onclick="event.stopPropagation();BP.setAggOrderMaterialPriceMode(' + _tid + ',\'sell\')" title="Alle Items dieses Materials auf SELL-Preis setzen">S</button>' +
+                '<button class="btn btn-sm bp-btn-toggle ' + (!_aggPriceModeSell ? 'btn-price-mode' : 'btn-outline-secondary') + '" style="font-size:0.55rem;padding:0 4px;line-height:1.2;"' +
+                ' onclick="event.stopPropagation();BP.setAggOrderMaterialPriceMode(' + _tid + ',\'buy\')" title="Alle Items dieses Materials auf BUY-Preis setzen">B</button>' +
                 '</span>';
             html += '</div>';
         }
 
+        // ── Aggregated Materials Footer: Totals (Build Qty, Buy Qty, Total Qty, Grand Total ISK) + Gesamt Volumen ──
+        var _aggTotBuildQty = 0, _aggTotBuyQty = 0, _aggGrandTotalIsk = 0, _aggTotVolume = 0;
+        for (var _aki = 0; _aki < ids.length; _aki++) {
+            var _ae = aggMap[ids[_aki]];
+            _aggTotBuildQty += _ae.build_qty || 0;
+            _aggTotBuyQty  += _ae.buy_qty || 0;
+            _aggGrandTotalIsk += (_ae.build_cost || 0) + (_ae.buy_cost || 0);
+            _aggTotVolume += (_ae.volume || 0) * (_ae.build_qty + _ae.buy_qty);
+        }
+        var _aggTotTotalQty = _aggTotBuildQty + _aggTotBuyQty;
+        html += '<div class="bp-order-mat-row" style="border-top:2px solid rgba(255,255,255,0.18);font-weight:700;background:rgba(255,255,255,0.05);margin-top:4px;padding-top:5px;padding-bottom:5px;">' +
+            '<span class="bp-mat-col-badge"><i class="bi bi-calculator" style="font-size:0.7rem;color:#ffc107;"></i></span>' +
+            '<span class="bp-mat-col-name" style="color:#ffc107;font-size:0.72rem;">GESAMT</span>' +
+            '<span class="bp-mat-col-qty" style="text-align:right;color:#28a745;">' + formatNumber(_aggTotBuildQty) + '</span>' +
+            '<span class="bp-mat-col-qty" style="text-align:right;color:#17a2b8;">' + formatNumber(_aggTotBuyQty) + '</span>' +
+            '<span class="bp-mat-col-qty" style="text-align:right;font-weight:700;color:#fff;">' + formatNumber(_aggTotTotalQty) + '</span>' +
+            '<span class="bp-mat-col-sell">-</span>' +
+            '<span class="bp-mat-col-buy">-</span>' +
+            '<span class="bp-mat-col-price">-</span>' +
+            '<span class="bp-mat-col-total" style="color:#ffc107;font-size:0.72rem;">' + (_aggGrandTotalIsk > 0 ? formatIsk(_aggGrandTotalIsk) : '-') + '</span>' +
+            '<span></span>' +
+            '<span class="bp-mat-col-action" style="justify-content:flex-end;font-size:0.65rem;color:#aaa;">' +
+            '<i class="bi bi-box-seam me-1"></i> ' + formatNumber(_aggTotVolume) + ' m³' +
+            '</span>' +
+            '</div>';
+
         html += '</div>'; // /bp-order-aggregated
         container.innerHTML = html;
         container.style.display = "block";
+    }
+
+    /**
+     * Override ALL items' material decision for a given material type ID (Feature 4).
+     * Used from Aggregated Materials view — sets all matching materials to build or buy.
+     * @param {number} typeId - The material_type_id to match
+     * @param {string} decision - 'build' or 'buy'
+     */
+    function setAggOrderMaterialDecision(typeId, decision) {
+        const order = _productionOrders[_activeOrderIndex];
+        if (!order || !order.items) return;
+        var changed = false;
+
+        // Quick lookup for this material's buildability from any item's material
+        var _isBuildable = false;
+        for (var i = 0; i < order.items.length && !_isBuildable; i++) {
+            var item = order.items[i];
+            if (!item.materials) continue;
+            for (var mi = 0; mi < item.materials.length && !_isBuildable; mi++) {
+                var m = item.materials[mi];
+                if (m.material_type_id === typeId) {
+                    _isBuildable = isBuildable(m);
+                }
+            }
+        }
+
+        // If trying to set 'build' on a non-buildable material, block it
+        if (decision === 'build' && !_isBuildable) {
+            return;
+        }
+
+        for (var i = 0; i < order.items.length; i++) {
+            var item = order.items[i];
+            if (!item.materials) continue;
+            for (var mi = 0; mi < item.materials.length; mi++) {
+                var m = item.materials[mi];
+                if (m.material_type_id === typeId && m.decision !== decision) {
+                    m.decision = decision;
+                    changed = true;
+                }
+            }
+            if (changed) {
+                recalcOrderItem(order, i);
+            }
+        }
+        if (changed) {
+            saveOrders();
+            renderOrderDetail();
+        }
+    }
+
+    /**
+     * Set ALL items' material price mode for a given material type ID (S/B in Aggregated Materials).
+     * @param {number} typeId - The material_type_id to match
+     * @param {string} priceMode - 'sell' or 'buy'
+     */
+    function setAggOrderMaterialPriceMode(typeId, priceMode) {
+        const order = _productionOrders[_activeOrderIndex];
+        if (!order || !order.items) return;
+        var changed = false;
+        for (var i = 0; i < order.items.length; i++) {
+            var item = order.items[i];
+            if (!item.materials) continue;
+            var itemChanged = false;
+            for (var mi = 0; mi < item.materials.length; mi++) {
+                var m = item.materials[mi];
+                if (m.material_type_id === typeId && m._priceMode !== priceMode) {
+                    m._priceMode = priceMode;
+                    itemChanged = true;
+                }
+                // Also update sub-materials (build steps) with same type_id
+                if (item._buildStepsData && item._buildStepsData.steps && item._buildStepsData.steps[0]) {
+                    for (var _ssi = 0; _ssi < (item._buildStepsData.steps[0].sub_steps || []).length; _ssi++) {
+                        var _subStep = item._buildStepsData.steps[0].sub_steps[_ssi];
+                        if (_subStep.materials) {
+                            for (var _smi = 0; _smi < _subStep.materials.length; _smi++) {
+                                var _sm = _subStep.materials[_smi];
+                                if (_sm.material_type_id === typeId && _sm._priceMode !== priceMode) {
+                                    _sm._priceMode = priceMode;
+                                    itemChanged = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (itemChanged) {
+                recalcOrderItem(order, i);
+                changed = true;
+            }
+        }
+        if (changed) {
+            saveOrders();
+            renderOrderDetail();
+        }
     }
 
     /** Toggle expand/collapse of a product item in the order */
@@ -4074,6 +4918,67 @@
         renderOrderDetail();
     }
 
+    /**
+     * Toggle the price mode for a material (sell vs buy).
+     * @param {number} orderIndex
+     * @param {number} itemIndex
+     * @param {number} materialIndex
+     * @param {boolean} forceBuy - If true, switch to buy price. Otherwise toggle.
+     */
+    function toggleMaterialPriceMode(orderIndex, itemIndex, materialIndex, forceBuyMode) {
+        const order = _productionOrders[orderIndex];
+        if (!order || !order.items[itemIndex]) return;
+        const mat = order.items[itemIndex].materials[materialIndex];
+        if (!mat) return;
+
+        if (forceBuyMode) {
+            mat._priceMode = 'buy';
+        } else {
+            mat._priceMode = mat._priceMode === 'sell' ? 'buy' : 'sell';
+        }
+
+        // Recalc build cost totals for the item
+        recalcOrderItem(order, itemIndex);
+
+        saveOrders();
+        renderOrderDetail();
+    }
+
+    /**
+     * Toggle the price mode for a sub-material in a build step (Feature 2).
+     * @param {number} orderIndex
+     * @param {number} itemIndex
+     * @param {number} materialIndex
+     * @param {number} subMaterialIndex
+     * @param {boolean} forceBuyMode
+     */
+    function toggleOrderMatPriceMode(orderIndex, itemIndex, materialIndex, subMaterialIndex, forceBuyMode) {
+        const order = _productionOrders[orderIndex];
+        if (!order || !order.items[itemIndex]) return;
+        const mat = order.items[itemIndex].materials[materialIndex];
+        if (!mat) return;
+        // Find the sub-step for this material
+        var _subStep = null;
+        if (order.items[itemIndex]._buildStepsData && order.items[itemIndex]._buildStepsData.steps && order.items[itemIndex]._buildStepsData.steps[0]) {
+            for (var _ssi = 0; _ssi < (order.items[itemIndex]._buildStepsData.steps[0].sub_steps || []).length; _ssi++) {
+                if (order.items[itemIndex]._buildStepsData.steps[0].sub_steps[_ssi].product_type_id === mat.material_type_id) {
+                    _subStep = order.items[itemIndex]._buildStepsData.steps[0].sub_steps[_ssi];
+                    break;
+                }
+            }
+        }
+        if (!_subStep || !_subStep.materials || !_subStep.materials[subMaterialIndex]) return;
+        const smData = _subStep.materials[subMaterialIndex];
+        if (forceBuyMode) {
+            smData._priceMode = 'buy';
+        } else {
+            smData._priceMode = smData._priceMode === 'sell' ? 'buy' : 'sell';
+        }
+        recalcOrderItem(order, itemIndex);
+        saveOrders();
+        renderOrderDetail();
+    }
+
     /** Recalculate build vs buy totals for an order item based on material decisions */
     function recalcOrderItem(order, itemIndex) {
         const item = order.items[itemIndex];
@@ -4083,12 +4988,50 @@
         let buyTotal = 0;
         let buildQty = 0;
         let buyQty = 0;
+        let totalInstallCost = 0;
 
         for (const m of item.materials) {
             var priceInfo = getEffectivePrice(m.material_type_id);
-            var unitPrice = (priceInfo.price != null) ? priceInfo.price : (m.unit_price || 0);
+            var _priceMode = m._priceMode || 'sell';
+            var _modePrice = _priceMode === 'sell' ? m.sell_price_per_unit : m.buy_price_per_unit;
+            if (_modePrice == null) _modePrice = _priceMode === 'sell' ? m.buy_price_per_unit : m.sell_price_per_unit;
+            if (_modePrice == null) _modePrice = (priceInfo.price != null) ? priceInfo.price : (m.unit_price || 0);
+            var unitPrice = _modePrice;
+
             if (m.decision === 'build') {
-                buildTotal += m.total_cost || 0;
+                // If this material has sub-steps (buildable), calculate from sub-materials
+                var _hasSubSteps = item._buildStepsData && item._buildStepsData.steps && item._buildStepsData.steps[0];
+                var _subStep = null;
+                if (_hasSubSteps) {
+                    for (var _s = 0; _s < (item._buildStepsData.steps[0].sub_steps || []).length; _s++) {
+                        if (item._buildStepsData.steps[0].sub_steps[_s].product_type_id === m.material_type_id) {
+                            _subStep = item._buildStepsData.steps[0].sub_steps[_s];
+                            break;
+                        }
+                    }
+                }
+                if (_subStep && _subStep.materials && _subStep.materials.length > 0) {
+                    // Sum sub-material costs at their price mode
+                    var _subTotal = 0;
+                    for (var _sm = 0; _sm < _subStep.materials.length; _sm++) {
+                        var _smData = _subStep.materials[_sm];
+                        var _smPriceInfo = getEffectivePrice(_smData.material_type_id);
+                        var _smMode = _smData._priceMode || 'sell';
+                        var _smSellP = _smPriceInfo.sell_price_min || _smPriceInfo.price;
+                        var _smBuyP = _smPriceInfo.buy_price_max || _smPriceInfo.price;
+                        var _smModePrice = _smMode === 'sell' ? (_smSellP || _smBuyP) : (_smBuyP || _smSellP);
+                        _subTotal += (_smModePrice || 0) * _smData.total_quantity;
+                    }
+                    // ME-dependent installation cost (Feature 5):
+                    // ME10 = 0% installation surcharge, ME0 = 20% installation surcharge
+                    var _meLevel = (item.me != null ? item.me : 10) / 10; // 0.0 to 1.0
+                    var _installMultiplier = 0.20 * (1 - _meLevel);
+                    var _installCost = Math.round(_subTotal * _installMultiplier);
+                    totalInstallCost += _installCost;
+                    buildTotal += Math.round(_subTotal) + _installCost;
+                } else {
+                    buildTotal += m.total_cost || 0;
+                }
                 buildQty += m.total_quantity;
             } else {
                 buyTotal += unitPrice * m.total_quantity;
@@ -4101,6 +5044,7 @@
         item.build_cost.buy_material_total = buyTotal;
         item.build_cost.build_qty = buildQty;
         item.build_cost.buy_qty = buyQty;
+        item.build_cost.installation_cost = totalInstallCost;
         item.build_cost.total_cost = buildTotal + buyTotal + (item.build_cost.facility_cost || 0) + (item.build_cost.job_cost || 0);
     }
 
@@ -4153,41 +5097,76 @@
         // Calculate totals across all items
         let totalItems = order.items.length;
         let totalMaterialCost = 0;
-        let totalFacilityCost = 0;
-        let totalJobCost = 0;
+        let totalSystemCostAmount = 0;  // system_cost_amount (eiv * sysIdx)
+        let totalJobGross = 0;          // job_gross_cost (after structure_role_bonus)
+        let totalFacTax = 0;            // facility_tax
+        let totalScc = 0;               // scc_surcharge
+        let totalInstallCost = 0;
         let totalBuildQty = 0;
         let totalBuyQty = 0;
-        let totalMarketValue = 0;  // Market value from price cache
-        let totalProductRevenue = 0;  // Revenue from selling finished products
-        let totalCostForProfit = 0;   // Total cost for profit calculation
+        let totalMarketValue = 0;
+        let totalProductRevenue = 0;
+        let totalCostForProfit = 0;
 
         var _summaryConfig = loadConfig();
+        var sysIdxDecimal = (_summaryConfig && _summaryConfig.system_cost_index != null)
+            ? _summaryConfig.system_cost_index / 100.0 : 0.05;
+        var taxRateDecimal = (_summaryConfig && _summaryConfig.tax_rate)
+            ? _summaryConfig.tax_rate / 100.0 : 0.05;
+
         for (const item of order.items) {
             if (item.build_cost) {
-                totalFacilityCost += item.build_cost.facility_cost || 0;
-                totalJobCost += item.build_cost.job_cost || 0;
-                // Sub-Step Job-Kosten hinzurechnen falls Build-Tree geladen
+                // Use EVE-correct per-item fields from backend
+                totalSystemCostAmount += item.build_cost.system_cost_amount || 0;
+                totalJobGross += item.build_cost.job_gross_cost || 0;
+                totalFacTax += item.build_cost.facility_tax || 0;
+                totalScc += item.build_cost.scc_surcharge || 0;
+                totalInstallCost += item.build_cost.installation_cost || 0;
+
+                // Sub-Step Job-Kosten anteilig auf System/Tax/SCC aufteilen
                 if (item._buildStepsData) {
-                    totalJobCost += calcSubStepJobCosts(item._buildStepsData, _summaryConfig);
+                    var subTotal = calcSubStepJobCosts(item._buildStepsData, _summaryConfig);
+                    if (subTotal > 0) {
+                        var denom = sysIdxDecimal + taxRateDecimal + 0.04;
+                        if (denom > 0) {
+                            var sysPart = subTotal * (sysIdxDecimal / denom);
+                            var taxPart = subTotal * (taxRateDecimal / denom);
+                            var sccPart = subTotal * (0.04 / denom);
+                            totalSystemCostAmount += sysPart;
+                            totalJobGross += sysPart;  // keine structure_role_bonus bei Sub-Steps
+                            totalFacTax += taxPart;
+                            totalScc += sccPart;
+                        }
+                    }
                 }
-                // build_material_total and buy_material_total do not exist in the API response.
-                // The correct field is total_material_cost (returned by /api/blueprints/build-cost).
-                totalMaterialCost += item.build_cost.total_material_cost || 0;
-                
-                // Calculate product revenue from sell price * quantity
-                const sellPrice = item.build_cost.product_sell_price;
+
+                // Material cost — prefer backend authoritative total_material_cost,
+                // fall back to frontend-recalculated (build+buy) values only when
+                // the backend value is missing (e.g. before first API fetch).
+                if (item.build_cost.total_material_cost != null && item.build_cost.total_material_cost > 0) {
+                    totalMaterialCost += item.build_cost.total_material_cost;
+                } else {
+                    totalMaterialCost += (item.build_cost.build_material_total || 0) + (item.build_cost.buy_material_total || 0);
+                }
+
+                // Product revenue
+                var prodPriceInfo = item.product_type_id ? getEffectivePrice(item.product_type_id) : null;
+                var sellPrice = null;
+                if (prodPriceInfo && prodPriceInfo.price != null) {
+                    sellPrice = prodPriceInfo.price;
+                } else {
+                    sellPrice = item.build_cost.product_sell_price;
+                }
                 if (sellPrice != null && sellPrice > 0) {
-                    // Use total_product_quantity from build_cost if available, else runs
                     const totalQty = item.build_cost.total_product_quantity || (item.runs || 1);
                     totalProductRevenue += sellPrice * totalQty;
                 }
             }
-            // Recalc from materials if available
+            // Materials for build/buy breakdown
             if (item.materials) {
                 for (const m of item.materials) {
                     if (m.decision === 'build') totalBuildQty += m.total_quantity;
                     else totalBuyQty += m.total_quantity;
-                    // Calculate market value from price cache
                     var priceInfo = getEffectivePrice(m.material_type_id);
                     if (priceInfo.price != null) {
                         totalMarketValue += priceInfo.price * m.total_quantity;
@@ -4195,8 +5174,8 @@
                 }
             }
         }
-        
-        // Calculate BPC amortized cost (Phase C7)
+
+        // BPC amortized cost
         let totalBpcCost = 0;
         for (const item of order.items) {
             if (item.build_cost && item.build_cost.bpc_amortized_cost) {
@@ -4204,63 +5183,90 @@
             }
         }
 
-        // Total cost for profit = material + facility + job + bpc
-        totalCostForProfit = totalMaterialCost + totalFacilityCost + totalJobCost + totalBpcCost;
+        // Total Job Cost = job_gross_cost + facility_tax + scc_surcharge
+        var totalJobCost = totalJobGross + totalFacTax + totalScc;
 
-        // Add system cost index contribution
-        var config = loadConfig();
-        var sysIdx = config.system_cost_index || 0;
-        var totalSystemCost = totalJobCost * (sysIdx / 100);  // already baked into job_cost usually
+        // Total cost for profit calculation
+        totalCostForProfit = totalMaterialCost + totalJobCost + totalBpcCost;
 
-        // Total build time across all items
+        // Grand Total (inkl. Material)
+        var grandTotal = totalMaterialCost + totalJobCost + totalBpcCost;
+        const savings = totalMarketValue - grandTotal;
+        const savingsPct = totalMarketValue > 0 ? ((savings / totalMarketValue) * 100) : 0;
+
+        // Update summary elements
+        document.getElementById("bpSummaryItems").textContent = totalItems;
+        document.getElementById("bpSummaryMaterial").textContent = totalMaterialCost > 0 ? formatIsk(totalMaterialCost) : '-';
+
+        // ── Job Cost Gross Cost section ──
+        var sciPctEl = document.getElementById("bpSummarySciPct");
+        if (sciPctEl) sciPctEl.textContent = (sysIdxDecimal * 100).toFixed(2);
+        document.getElementById("bpSummarySci").textContent = totalSystemCostAmount > 0 ? formatIsk(totalSystemCostAmount) : '-';
+        document.getElementById("bpSummaryJobGross").textContent = totalJobGross > 0 ? formatIsk(totalJobGross) : '-';
+
+        // ── Taxes section ──
+        var facTaxPctEl = document.getElementById("bpSummaryFacTaxPct");
+        if (facTaxPctEl) facTaxPctEl.textContent = (taxRateDecimal * 100).toFixed(2);
+        document.getElementById("bpSummaryFacTax").textContent = totalFacTax > 0 ? formatIsk(totalFacTax) : '-';
+        document.getElementById("bpSummaryScc").textContent = totalScc > 0 ? formatIsk(totalScc) : '-';
+
+        // Installation cost row (conditional, dynamic)
+        var installRow = document.getElementById("bpSummaryInstall");
+        if (totalInstallCost > 0) {
+            if (!installRow) {
+                installRow = document.createElement("div");
+                installRow.id = "bpSummaryInstall";
+                installRow.className = "summary-row cost-install";
+                installRow.innerHTML = '<span class="summary-label-indent">Installation <i class="bi bi-info-circle text-secondary" title="Abh\u00e4ngig von ME-Stufe: ME10 = 0%, ME0 = 20%"></i></span><span id="bpSummaryInstallVal">-</span>';
+                // Insert before Total Job Cost row
+                var totalRow = summaryEl.querySelector('.summary-row.total');
+                if (totalRow) {
+                    totalRow.parentNode.insertBefore(installRow, totalRow);
+                } else {
+                    summaryEl.appendChild(installRow);
+                }
+            }
+            document.getElementById("bpSummaryInstallVal").textContent = formatIsk(totalInstallCost);
+            installRow.style.display = "flex";
+        } else if (installRow) {
+            installRow.style.display = "none";
+        }
+
+        document.getElementById("bpSummaryTotalJobCost").textContent = totalJobCost > 0 ? formatIsk(totalJobCost) : '-';
+        document.getElementById("bpSummaryGrand").textContent = grandTotal > 0 ? formatIsk(grandTotal) : '-';
+
+        // Build time row
         var totalBuildSec = 0;
         for (var bi = 0; bi < order.items.length; bi++) {
             var bitem = order.items[bi];
             var btime = bitem.build_time_seconds || (bitem.build_cost && bitem.build_cost.build_time_seconds) || 0;
-            // Apply PE reduction: time * (1 - pe*0.01) roughly
-            var pe = (bitem.te != null ? bitem.te : 20);
-            var peMultiplier = 1 - (pe * 0.01);
-            totalBuildSec += btime * peMultiplier;
+            totalBuildSec += btime;
         }
-
-        // Grand total including BPC amortized cost
-        var grandTotal = totalMaterialCost + totalFacilityCost + totalJobCost;
-        var grandTotalWithBpc = grandTotal + totalBpcCost;
-        const savings = totalMarketValue - grandTotalWithBpc;
-        const savingsPct = totalMarketValue > 0 ? ((savings / totalMarketValue) * 100) : 0;
-
-        document.getElementById("bpSummaryItems").textContent = totalItems;
-        document.getElementById("bpSummaryMaterial").textContent = totalMaterialCost > 0 ? formatIsk(totalMaterialCost) : '-';
-        document.getElementById("bpSummaryFacility").textContent = totalFacilityCost > 0 ? formatIsk(totalFacilityCost) : '-';
-        document.getElementById("bpSummaryJob").textContent = totalJobCost > 0 ? formatIsk(totalJobCost) : '-';
-        document.getElementById("bpSummaryGrand").textContent = grandTotalWithBpc > 0 ? formatIsk(grandTotalWithBpc) : '-';
-
-        // System cost index row
-        var sciEl = document.getElementById("bpSummarySCI");
-        if (!sciEl) {
-            sciEl = document.createElement("div");
-            sciEl.id = "bpSummarySCI";
-            sciEl.className = "summary-row cost-system";
-            sciEl.innerHTML = '<span>System Cost Index (' + sysIdx.toFixed(2) + '%)</span><span id="bpSummarySCIVal">-</span>';
-            document.getElementById("bpSummaryJob").parentElement
-                ? document.getElementById("bpSummaryJob").parentElement.insertAdjacentElement("afterend", sciEl)
-                : document.getElementById("bpOrderSummary").appendChild(sciEl);
-        } else {
-            sciEl.querySelector("span").textContent = "System Cost Index (" + sysIdx.toFixed(2) + "%)";
-        }
-        document.getElementById("bpSummarySCIVal") && (document.getElementById("bpSummarySCIVal").textContent = sysIdx > 0 && totalJobCost > 0 ? formatIsk(totalSystemCost) : "(eingebaut in Job Cost)");
-
-        // Build time row
         var btEl = document.getElementById("bpSummaryBuildTime");
         if (!btEl) {
             btEl = document.createElement("div");
             btEl.id = "bpSummaryBuildTime";
             btEl.className = "summary-row cost-build-time";
             btEl.innerHTML = '<span>Gesamt Bauzeit</span><span id="bpSummaryBuildTimeVal">-</span>';
-            document.getElementById("bpOrderSummary").insertBefore(btEl, document.getElementById("bpSummaryGrand") ? document.getElementById("bpSummaryGrand").parentElement : null);
+            var grandRow = summaryEl.querySelector('.summary-row.grand-total');
+            if (grandRow && grandRow.nextSibling) {
+                grandRow.parentNode.insertBefore(btEl, grandRow.nextSibling);
+            } else {
+                summaryEl.appendChild(btEl);
+            }
         }
         var btValEl = document.getElementById("bpSummaryBuildTimeVal");
         if (btValEl) btValEl.textContent = totalBuildSec > 0 ? formatDuration(totalBuildSec) : '-';
+
+        // BPC row
+        var bpcRow = document.getElementById("bpSummaryBpcRow");
+        var bpcCostEl = document.getElementById("bpSummaryBpcCost");
+        if (totalBpcCost > 0) {
+            if (bpcRow) bpcRow.style.display = "flex";
+            if (bpcCostEl) bpcCostEl.textContent = formatIsk(totalBpcCost);
+        } else {
+            if (bpcRow) bpcRow.style.display = "none";
+        }
 
         // Market value row
         var mvEl = document.getElementById("bpSummaryMarketValue");
@@ -4284,19 +5290,9 @@
             mvEl.style.display = "none";
         }
 
-        // Show/hide BPC amortized cost row
-        var bpcRow = document.getElementById("bpSummaryBpcRow");
-        var bpcCostEl = document.getElementById("bpSummaryBpcCost");
-        if (totalBpcCost > 0) {
-            if (bpcRow) bpcRow.style.display = "flex";
-            if (bpcCostEl) bpcCostEl.textContent = formatIsk(totalBpcCost);
-        } else {
-            if (bpcRow) bpcRow.style.display = "none";
-        }
-
         // Savings row
         var savingsEl = document.getElementById("bpSummarySavings");
-        if (totalMarketValue > 0 && grandTotalWithBpc > 0) {
+        if (totalMarketValue > 0 && grandTotal > 0) {
             if (!savingsEl) {
                 savingsEl = document.createElement("div");
                 savingsEl.id = "bpSummarySavings";
@@ -4319,7 +5315,7 @@
             savingsEl.style.display = "none";
         }
 
-        // Add build/buy breakdown
+        // Build/buy breakdown
         let breakdownEl = document.getElementById("bpSummaryBreakdown");
         if (!breakdownEl) {
             breakdownEl = document.createElement("div");
@@ -4331,7 +5327,7 @@
             ' <span class="text-secondary">|</span> ' +
             '<span class="text-info">Buy: ' + formatNumber(totalBuyQty) + '</span>';
 
-        // ── Revenue & Profit Section ──
+        // Profit section
         var profitEl = document.getElementById("bpSummaryProfit");
         if (totalProductRevenue > 0 && totalCostForProfit > 0) {
             var profit = totalProductRevenue - totalCostForProfit;
@@ -4356,14 +5352,14 @@
             profitEl.style.display = "none";
         }
 
-        // ── Revenue row (sub-item under profit) ──
+        // Revenue row
         var revenueEl = document.getElementById("bpSummaryRevenue");
         if (totalProductRevenue > 0) {
             if (!revenueEl) {
                 revenueEl = document.createElement("div");
                 revenueEl.id = "bpSummaryRevenue";
                 revenueEl.className = "summary-row revenue-row";
-                revenueEl.innerHTML = '<span class="summary-label" style="font-size:0.65rem;color:var(--t-text-dim);">→ Verkaufserlös (Jita Sell)</span>' +
+                revenueEl.innerHTML = '<span class="summary-label" style="font-size:0.65rem;color:var(--t-text-dim);">\u2192 Verkaufserl\u00f6s (Jita Sell)</span>' +
                     '<span class="summary-value" style="font-size:0.65rem;">' + formatIsk(totalProductRevenue) + '</span>';
                 if (profitEl && profitEl.parentNode) {
                     profitEl.parentNode.insertBefore(revenueEl, profitEl.nextSibling);
@@ -4387,15 +5383,29 @@
         var order = _productionOrders[orderIdx];
         if (!order || !order.items[itemIdx]) return;
         order.items[itemIdx].me = Math.max(0, Math.min(10, parseInt(value) || 0));
+        // Recalc costs since ME affects installation cost (Feature 5)
+        recalcOrderItem(order, itemIdx);
         saveOrders();
-        renderOrderSummary();
+        renderOrderDetail();
     }
     function updateOrderItemTE(orderIdx, itemIdx, value) {
         var order = _productionOrders[orderIdx];
         if (!order || !order.items[itemIdx]) return;
         order.items[itemIdx].te = Math.max(0, Math.min(20, parseInt(value) || 0));
         saveOrders();
-        renderOrderSummary();
+        renderOrderDetail();
+    }
+    function updateOrderItemRuns(orderIdx, itemIdx, value) {
+        var order = _productionOrders[orderIdx];
+        if (!order || !order.items[itemIdx]) return;
+        var newRuns = Math.max(1, Math.min(1000, parseInt(value) || 1));
+        order.items[itemIdx].runs = newRuns;
+        // Changing runs means material quantities change — need to re-fetch build costs from backend
+        saveOrders();
+        // Trigger a full re-cost via the backend
+        _fetchBuildCostsForOrder(order).then(function() {
+            renderOrderDetail();
+        });
     }
 
     /** Format seconds into e.g. "2d 3h 15m" */
@@ -4428,7 +5438,7 @@
         }
     }
 
-    /** Render the list of all materials from the active order with name, Jita price, input, and Set button */
+    /** Render the list of all materials + finished products from the active order with name, Jita price, input, and Set button */
     function renderPriceOverrides() {
         var list = document.getElementById("bpOverrideList");
         var section = document.getElementById("bpPriceOverrides");
@@ -4440,8 +5450,28 @@
             return;
         }
 
-        // Collect unique materials across all order items
-        var matMap = {};  // type_id → { name, jita_sell, jita_buy, category_id }
+        // Collect unique materials + finished products across all order items
+        var matMap = {};  // type_id → { name, jita_sell, jita_buy, category_id, is_product }
+        // ── Add finished products first ──
+        for (var i = 0; i < order.items.length; i++) {
+            var item = order.items[i];
+            var prodId = item.product_type_id;
+            if (prodId && !matMap[prodId]) {
+                var cacheEntry = getPrice(prodId);
+                var jitaSell = (cacheEntry && cacheEntry.sell_price_min != null) ? cacheEntry.sell_price_min : null;
+                var jitaBuy  = (cacheEntry && cacheEntry.buy_price_max != null) ? cacheEntry.buy_price_max : null;
+                matMap[prodId] = {
+                    type_id: prodId,
+                    name: item.product_name || ("Product " + prodId),
+                    category_id: null,
+                    jita_sell: jitaSell,
+                    jita_buy: jitaBuy,
+                    override_price: (cacheEntry && cacheEntry.override_price != null) ? cacheEntry.override_price : null,
+                    is_product: true,
+                };
+            }
+        }
+        // ── Add materials ──
         for (var i = 0; i < order.items.length; i++) {
             var item = order.items[i];
             if (!item.materials) continue;
@@ -4458,7 +5488,8 @@
                         category_id: m.category_id || null,
                         jita_sell: jitaSell,
                         jita_buy: jitaBuy,
-                        override_price: (cacheEntry && cacheEntry.override_price != null) ? cacheEntry.override_price : null
+                        override_price: (cacheEntry && cacheEntry.override_price != null) ? cacheEntry.override_price : null,
+                        is_product: false,
                     };
                 }
             }
@@ -4480,17 +5511,22 @@
             var hasOverride = mat.override_price !== null;
             if (hasOverride) overrideCount++;
 
-            var badgeHtml = matCategoryBadge(mat.category_id);
+            var badgeHtml = mat.is_product
+                ? '<span class="badge bg-primary" style="font-size:0.6rem;">PROD</span>'
+                : matCategoryBadge(mat.category_id, mat.is_reaction === true);
 
-            var catName = "";
-            switch (mat.category_id) {
-                case 4: catName = "Mineral"; break;
-                case 5: catName = "Planet"; break;
-                case 17: catName = "Reaction"; break;
-                case 18: catName = "Advanced"; break;
-                default: catName = "Other"; break;
+            var catName = mat.is_product ? "Product" : "";
+            if (!mat.is_product) {
+                switch (mat.category_id) {
+                    case 4: catName = "Mineral"; break;
+                    case 5: catName = "Planet"; break;
+                    case 17: catName = "Reaction"; break;
+                    case 18: catName = "Advanced"; break;
+                    default: catName = "Other"; break;
+                }
             }
-            html += '<div class="bp-override-row' + (hasOverride ? ' has-override' : '') + '">';
+            var rowClass = mat.is_product ? ' bp-override-product' : '';
+            html += '<div class="bp-override-row' + rowClass + (hasOverride ? ' has-override' : '') + '">';
             html += '<span class="bp-override-badge">' + badgeHtml + '</span>';
             html += '<span class="bp-override-name" title="ID: ' + mat.type_id + ' | ' + catName + '">' + escHtml(mat.name) + '</span>';
             html += '<span class="bp-override-jita bp-override-jita-sell" title="Jita Sell">' + (mat.jita_sell != null ? formatIsk(mat.jita_sell) : '-') + '</span>';
@@ -4874,7 +5910,30 @@
             for (const item of order.items) {
                 if (!item.materials) continue;
                 for (const m of item.materials) {
-                    if (m.decision !== 'buy') continue;
+                    if (m.decision !== 'buy') {
+                        // Bug 4: If material is set to "build", decompose into sub-materials for the buy list
+                        var subMats = _getBuildSubMaterials(item, m.material_type_id, m.total_quantity || 0);
+                        if (subMats && subMats.length > 0) {
+                            for (var smi = 0; smi < subMats.length; smi++) {
+                                var sm = subMats[smi];
+                                var smKey = sm.type_id;
+                                if (!buyMap[smKey]) {
+                                    buyMap[smKey] = {
+                                        name: sm.name,
+                                        type_id: smKey,
+                                        qty: 0,
+                                        unit_price: sm.unit_price || 0,
+                                        total_cost: 0
+                                    };
+                                }
+                                buyMap[smKey].qty += sm.qty;
+                                var smCost = (sm.unit_price || 0) * sm.qty;
+                                buyMap[smKey].total_cost += smCost;
+                                if (sm.unit_price) hasCostData = true;
+                            }
+                        }
+                        continue; // Skip "build" materials themselves (only add their sub-materials)
+                    }
                     const key = m.material_type_id;
                     if (!buyMap[key]) {
                         buyMap[key] = {
@@ -4948,19 +6007,15 @@
             modal.show();
         }
 
-        /** Copy buy list to clipboard as formatted text */
+        /** Copy buy list to clipboard — EVE import format: Name\tQty (no header, no prices, dots as thousand sep) */
         function buyListCopyClipboard() {
             if (!_buyListData || _buyListData.length === 0) {
                 alert("No buy list data. Generate the buy list first.");
                 return;
             }
-            const lines = _buyListData.map(function (e) {
-                return e.name + '\t' + formatNumber(e.qty) +
-                    (e.unit_price > 0 ? '\t' + formatNumber(Math.round(e.unit_price)) + ' ISK' : '') +
-                    (e.total_cost > 0 ? '\t' + formatNumber(Math.round(e.total_cost)) + ' ISK' : '');
-            });
-            var header = 'Material\tQty' + (lines[0] && lines[0].indexOf('ISK') > -1 ? '\tUnit Price\tTotal' : '');
-            var text = header + '\n' + lines.join('\n');
+            var text = _buyListData.map(function (e) {
+                return e.name + '\t' + _formatQty(e.qty);
+            }).join('\n');
 
             navigator.clipboard.writeText(text).then(function () {
                 var btn = document.querySelector('#bpBuyListModal .modal-footer .btn-outline-info');
@@ -4985,11 +6040,10 @@
                 alert("No buy list data. Generate the buy list first.");
                 return;
             }
-            var lines = ['"Material","Qty","Unit Price ISK","Total ISK"'];
+            var lines = ['"Material","Qty"'];
             for (var i = 0; i < _buyListData.length; i++) {
                 var e = _buyListData[i];
-                lines.push('"' + e.name + '",' + e.qty + ',' +
-                    (e.unit_price || 0) + ',' + (e.total_cost || 0));
+                lines.push('"' + e.name + '",' + _formatQty(e.qty));
             }
             var csv = lines.join("\n");
             var blob = new Blob([csv], { type: "text/csv" });
@@ -5000,30 +6054,16 @@
             URL.revokeObjectURL(a.href);
         }
 
-        /** Export buy list as plain text */
+        /** Export buy list as plain text — EVE import format: Name\tQty (no prices, no header, dots as thousand sep) */
         function buyListExportText() {
             if (!_buyListData || _buyListData.length === 0) {
                 alert("No buy list data. Generate the buy list first.");
                 return;
             }
-            var lines = ["=== Buy List ==="];
-            var grandTotal = 0;
-            for (var i = 0; i < _buyListData.length; i++) {
-                var e = _buyListData[i];
-                grandTotal += e.total_cost;
-                var line = e.name;
-                while (line.length < 35) line += ' ';
-                line += formatNumber(e.qty);
-                if (e.total_cost > 0) {
-                    while (line.length < 55) line += ' ';
-                    line += formatNumber(Math.round(e.total_cost)) + ' ISK';
-                }
-                lines.push(line);
-            }
-            lines.push('');
-            lines.push('Total: ' + formatNumber(grandTotal > 0 ? Math.round(grandTotal) : _buyListData.length) + ' materials');
+            var text = _buyListData.map(function (e) {
+                return e.name + '\t' + _formatQty(e.qty);
+            }).join('\n');
 
-            var text = lines.join('\n');
             var ta = document.createElement("textarea");
             ta.value = text;
             document.body.appendChild(ta);
@@ -5410,6 +6450,10 @@
             '<select class="bp-price-source-select" style="min-width:140px;" onchange="BP.applyStationPresetDirect(this.value)">' + presetOptions + '</select>' +
             '</div>';
 
+        // Price last-sync timestamp (Issue 5)
+        var lastSyncTs = _priceCache.savedAt || _priceCache.lastFetched;
+        var lastSyncDisplay = lastSyncTs ? _formatTimestamp(lastSyncTs) : "—";
+
         bar.innerHTML = presetBar +
             '<div class="bp-config-bar-line">' +
                 '<span class="bp-config-station" title="Station: ' + escHtml(stationDisplay) + '">' +
@@ -5429,6 +6473,8 @@
                         '<option value="jita_sell"' + (c.price_source === "jita_sell" ? " selected" : "") + '>Jita Sell</option>' +
                         '<option value="jita_buy"' + (c.price_source === "jita_buy" ? " selected" : "") + '>Jita Buy</option>' +
                     '</select></span>' +
+                '<span class="text-secondary mx-1">|</span>' +
+                '<span title="Prices last synced"><i class="bi bi-clock-history"></i> Sync: ' + lastSyncDisplay + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
                 '<span title="Implants"><i class="bi bi-cpu"></i> ' + implantStr + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
@@ -5544,10 +6590,18 @@
         // Facility
         setSel("bpCfgFacilityType", c.facility_type || "npc_station");
         setSel("bpCfgRigs", c.rigs || "none");
+        // Disable rigs if NPC station (Issue 6)
+        var _facTypeEl = document.getElementById("bpCfgFacilityType");
+        var _rigsEl = document.getElementById("bpCfgRigs");
+        if (_facTypeEl && _rigsEl) {
+            var _isNpc = _facTypeEl.value === "npc_station";
+            _rigsEl.disabled = _isNpc;
+            if (_isNpc) _rigsEl.value = "none";
+        }
         var taxEl = document.getElementById("bpCfgTax");
         var taxValEl = document.getElementById("bpCfgTaxVal");
         if (taxEl) { taxEl.value = c.tax_rate || 5.0; }
-        if (taxValEl) { taxValEl.textContent = (c.tax_rate || 5.0).toFixed(1) + "%"; }
+        if (taxValEl) { taxValEl.textContent = (c.tax_rate || 5.0).toFixed(2) + "%"; }
 
         // Station selector — load options if not loaded
         var stationSel = document.getElementById("bpCfgStation");
@@ -5806,13 +6860,28 @@
         if (buyRadio) buyRadio.addEventListener("change", updatePriceNote);
         if (sellRadio) sellRadio.addEventListener("change", updatePriceNote);
 
-        // Tax slider sync
+        // Tax input sync (number input - precise entry)
         var taxEl = document.getElementById("bpCfgTax");
         var taxValEl = document.getElementById("bpCfgTaxVal");
         if (taxEl && taxValEl) {
             taxEl.addEventListener("input", function() {
-                taxValEl.textContent = parseFloat(this.value).toFixed(1) + "%";
+                var v = parseFloat(this.value);
+                if (isNaN(v)) v = 0;
+                taxValEl.textContent = v.toFixed(2) + "%";
             });
+        }
+
+        // Facility Type → disable Rigs when NPC station (Issue 6)
+        var facTypeEl = document.getElementById("bpCfgFacilityType");
+        var rigsEl = document.getElementById("bpCfgRigs");
+        if (facTypeEl && rigsEl) {
+            function syncRigState() {
+                var isNpc = facTypeEl.value === "npc_station";
+                rigsEl.disabled = isNpc;
+                if (isNpc) rigsEl.value = "none";
+            }
+            facTypeEl.addEventListener("change", syncRigState);
+            syncRigState(); // apply on init
         }
 
         // Index mode radio toggle
@@ -5906,6 +6975,13 @@
                         bpc_cost_per_run: bpcCost ? bpcCost.cost_per_run : 0,
                         bpc_amortized_cost: bpcAmortizedCost,
                         bpc_cost_source: bpcCost ? bpcCost.cost_source : null,
+                        // EVE-correct job cost fields (from API)
+                        system_cost_amount: apiItem.system_cost_amount,
+                        job_gross_cost: apiItem.job_gross_cost,
+                        facility_tax: apiItem.facility_tax,
+                        scc_surcharge: apiItem.scc_surcharge,
+                        total_job_cost: apiItem.total_job_cost,
+                        eiv: apiItem.eiv,
                     };
 
                     // Include BPC amortized cost in total_cost
@@ -5928,10 +7004,31 @@
                             total_cost: mat.total_cost,
                             price_source: mat.price_source,
                             is_optional: mat.is_optional || false,
+                            is_reaction: mat.is_reaction === true,
+                            is_buildable: mat.is_buildable === true,
+                            _priceMode: 'sell',
                             decision: (mat.unit_price && buyCost < buildCost) ? "buy" : "build",
                         };
                     });
                 }
+                // Fetch build-steps for each order item to enable inline sub-material display
+                for (const orderItem of order.items) {
+                    if (!orderItem.blueprint_type_id) continue;
+                    try {
+                        const bstepsResp = await fetch(
+                            "/api/blueprints/" + orderItem.blueprint_type_id + "/build-steps",
+                            { credentials: "include" }
+                        );
+                        if (bstepsResp.ok) {
+                            const bstepsData = await bstepsResp.json();
+                            orderItem._buildStepsData = bstepsData;
+                        }
+                    } catch (err) {
+                        console.warn("[BP] Build-steps fetch failed for", orderItem.blueprint_type_id, err.message);
+                    }
+                }
+                // Batch-fetch prices for sub-material type IDs
+                await _fetchSubMaterialPrices(order);
                 saveOrders();
                 renderOrderDetail();
             } else {
@@ -7196,13 +8293,57 @@
      */
     var _RAW_BUY_CATEGORIES = [4, 42, 43, 53]; // Mineral, Asteroid, Ice, Biochemicals
 
+    /**
+     * Recursively flatten sub-materials from build-steps data for a given material type.
+     * Used by Aggregated Materials + Buy List to decompose "build" items into their leaf sub-components.
+     * @param {object} item - The order item (must have _buildStepsData)
+     * @param {number} materialTypeId - The material_type_id to look up in sub-steps
+     * @param {number} parentQty - The total quantity of the parent material (to multiply sub-material qties)
+     * @returns {Array<{type_id, name, category_id, qty}>}
+     */
+    function _getBuildSubMaterials(item, materialTypeId, parentQty) {
+        var result = [];
+        if (!item || !item._buildStepsData || !item._buildStepsData.steps || !item._buildStepsData.steps[0]) return result;
+        var _topStep = item._buildStepsData.steps[0];
+        for (var _ssi = 0; _ssi < (_topStep.sub_steps || []).length; _ssi++) {
+            if (_topStep.sub_steps[_ssi].product_type_id === materialTypeId) {
+                var subStep = _topStep.sub_steps[_ssi];
+                if (subStep.materials) {
+                    for (var smi = 0; smi < subStep.materials.length; smi++) {
+                        var sm = subStep.materials[smi];
+                        result.push({
+                            type_id: sm.material_type_id,
+                            name: sm.material_name || ("Material " + sm.material_type_id),
+                            category_id: sm.category_id,
+                            qty: (sm.total_quantity || 0) * (parentQty || 1),
+                            is_reaction: sm.is_reaction === true,
+                            sell_price_per_unit: sm.sell_price_per_unit,
+                            buy_price_per_unit: sm.buy_price_per_unit,
+                            unit_price: sm.unit_price
+                        });
+                    }
+                }
+                break;
+            }
+        }
+        return result;
+    }
+
     function isBuildable(m) {
         if (!m) return false;
+        // Backend 'is_buildable' flag takes precedence (true for reaction outputs)
+        if (m.is_buildable === true) return true;
+        if (m.is_buildable === false) return false;
+        // Fallback: raw-buy categories are not buildable
         if (_RAW_BUY_CATEGORIES.indexOf(m.category_id) !== -1) return false;
         return true;
     }
 
-    function matCategoryBadge(categoryId) {
+    function matCategoryBadge(categoryId, isReaction) {
+        // Reaction outputs get priority — R-badge (red)
+        if (isReaction) {
+            return '<span class="badge bg-danger" title="Reaction Output">R</span>';
+        }
         switch (categoryId) {
             case 4:  return '<span class="badge bg-warning text-dark" title="Mineral/Material">M</span>';
             case 43: return '<span class="badge bg-primary" title="Planetary Commodity">P</span>';
@@ -7341,10 +8482,14 @@
         recalcCurrentOrder: recalcCurrentOrder,
         toggleOrderItem: toggleOrderItem,
         toggleOrderMaterial: toggleOrderMaterial,
+        toggleMaterialPriceMode: toggleMaterialPriceMode,
         updateOrderItemME: updateOrderItemME,
         updateOrderItemTE: updateOrderItemTE,
         toggleMatSubStep: toggleMatSubStep,
         toggleOrderMatSubStep: toggleOrderMatSubStep,
+        toggleOrderMatPriceMode: toggleOrderMatPriceMode,
+        setAggOrderMaterialDecision: setAggOrderMaterialDecision,
+        setAggOrderMaterialPriceMode: setAggOrderMaterialPriceMode,
         bpcAddEntry: bpcAddEntry,
         bpcAutoGenerateFromAssets: bpcAutoGenerateFromAssets,
         bpcRefreshFromAssets: bpcRefreshFromAssets,
@@ -7399,6 +8544,7 @@
         buyListCopyClipboard: buyListCopyClipboard,
         buyListExportCsv: buyListExportCsv,
         buyListExportText: buyListExportText,
+        manualPriceRefresh: manualPriceRefresh,
         fetchBatchPrices: fetchBatchPrices,
         getPrice: getPrice,
         getEffectivePrice: getEffectivePrice,

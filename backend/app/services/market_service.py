@@ -50,6 +50,7 @@ async def refresh_all_prices(db: AsyncSession) -> dict:
     Fetches ALL pages (not just page 1) for each key region, ensuring
     that items like Jita prices are fully populated. Previously only
     page=1 was fetched, which missed large portions of the market.
+    Now also fetches BUY orders so buy_price_max is populated.
     """
     client = ESIClient(db)
     stats = {"fetched": 0, "updated": 0, "errors": 0}
@@ -57,25 +58,40 @@ async def refresh_all_prices(db: AsyncSession) -> dict:
     try:
         for region_id in KEY_REGIONS:
             try:
-                # Fetch ALL pages of sell orders using the same pagination
-                # logic as sync_market_orders.
-                all_orders = await _fetch_all_pages(client, region_id, "sell")
-                stats["fetched"] += len(all_orders)
+                # ── Sell orders: lowest sell price ──
+                sell_orders = await _fetch_all_pages(client, region_id, "sell")
+                stats["fetched"] += len(sell_orders)
 
-                # Group by type_id, find lowest sell price
                 min_sell = {}
-                for order in all_orders:
+                for order in sell_orders:
                     tid = order.get("type_id")
                     price = order.get("price", 0)
                     if tid not in min_sell or price < min_sell[tid]:
                         min_sell[tid] = price
 
-                # Store/update prices
                 for type_id, price in min_sell.items():
                     await _upsert_price(db, type_id, sell_price_min=price)
                     stats["updated"] += 1
 
-                logger.info(f"Region {region_id}: {len(min_sell)} prices cached from {len(all_orders)} orders")
+                # ── Buy orders: highest buy price ──
+                buy_orders = await _fetch_all_pages(client, region_id, "buy")
+                stats["fetched"] += len(buy_orders)
+
+                max_buy = {}
+                for order in buy_orders:
+                    tid = order.get("type_id")
+                    price = order.get("price", 0)
+                    if tid not in max_buy or price > max_buy[tid]:
+                        max_buy[tid] = price
+
+                for type_id, price in max_buy.items():
+                    await _upsert_price(db, type_id, buy_price_max=price)
+                    stats["updated"] += 1
+
+                logger.info(
+                    f"Region {region_id}: {len(min_sell)} sell / {len(max_buy)} buy prices "
+                    f"cached from {len(sell_orders) + len(buy_orders)} orders"
+                )
 
             except Exception as e:
                 logger.warning(f"Error fetching region {region_id}: {e}")

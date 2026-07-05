@@ -414,6 +414,9 @@
             <button class="btn btn-outline-light btn-sm" onclick="BP.openStockThresholdModal()" id="btnStockThresholds" title="BPC Stock Level Thresholds">
                 <i class="bi bi-sliders2"></i> Stock
             </button>
+            <button class="btn btn-success btn-sm" onclick="BP.manualPriceRefresh()" id="btnRefreshPrices" title="Marktpreise manuell neu von ESI laden">
+                <i class="bi bi-currency-dollar"></i> Refresh Prices
+            </button>
             <button class="btn btn-info btn-sm" onclick="BP.syncBlueprints()" id="btnSyncBp">
                 <i class="bi bi-arrow-repeat"></i> Sync Personal
             </button>
@@ -993,20 +996,40 @@
                     <span>Material Cost</span>
                     <span id="bpSummaryMaterial">-</span>
                 </div>
-                <div class="summary-row">
-                    <span>Facility Cost</span>
-                    <span id="bpSummaryFacility">-</span>
+
+                <!-- ── Job Cost Gross Cost ── -->
+                <div class="summary-section-header">Job Cost Gross Cost</div>
+                <div class="summary-row" id="bpSummarySciRow">
+                    <span class="summary-label-indent">System Cost Index (<span id="bpSummarySciPct">0.00</span>%)</span>
+                    <span id="bpSummarySci">-</span>
                 </div>
                 <div class="summary-row">
-                    <span>Job Cost</span>
-                    <span id="bpSummaryJob">-</span>
+                    <span class="summary-label-indent">Total Job Gross Cost</span>
+                    <span id="bpSummaryJobGross">-</span>
                 </div>
+
+                <!-- ── Taxes ── -->
+                <div class="summary-section-header">Taxes</div>
+                <div class="summary-row">
+                    <span class="summary-label-indent">Facility Tax (<span id="bpSummaryFacTaxPct">0.00</span>%)</span>
+                    <span id="bpSummaryFacTax">-</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label-indent">SCC Surcharge (4%)</span>
+                    <span id="bpSummaryScc">-</span>
+                </div>
+
                 <div class="summary-row" id="bpSummaryBpcRow" style="display:none;">
                     <span><i class="bi bi-coin text-info"></i> BPC Amortized Cost</span>
                     <span id="bpSummaryBpcCost">-</span>
                 </div>
+
                 <div class="summary-row total">
-                    <span>Grand Total</span>
+                    <span>Total Job Cost</span>
+                    <span id="bpSummaryTotalJobCost">-</span>
+                </div>
+                <div class="summary-row grand-total">
+                    <span>Grand Total (inkl. Material)</span>
                     <span id="bpSummaryGrand">-</span>
                 </div>
                 <div class="summary-row">
@@ -1410,7 +1433,7 @@
                 <div class="col-md-4">
                     <label class="form-label mb-0 text-secondary">Tax Rate (%)</label>
                     <div class="d-flex align-items-center gap-2">
-                        <input type="range" class="form-range flex-fill" id="bpCfgTax" min="0" max="25" value="5.0" step="0.1" style="height:6px;">
+                        <input type="number" class="form-control form-control-sm" id="bpCfgTax" min="0" max="25" value="5.0" step="0.01" style="width:100px;">
                         <span class="text-warning small" id="bpCfgTaxVal" style="min-width:40px;text-align:right;">5.0%</span>
                     </div>
                 </div>

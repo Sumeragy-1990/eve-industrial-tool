@@ -17,6 +17,7 @@ from app.models.sde_blueprint import (
     SDEBlueprintProduct,
     SDEBlueprintSkill,
 )
+from app.models.sde_market_group import SDEMarketGroup
 from app.models.sde_item import SDEItem
 from app.models.cached_price import CachedPrice
 from app.models.user_item_price import UserItemPrice
@@ -328,6 +329,45 @@ _HULL_LINE_RACE = {
 
 RACE_SORT_ORDER = {"Caldari": 1, "Minmatar": 2, "Amarr": 3, "Gallente": 4, "ORE": 5, "Upwell": 6}
 
+# Explicit ship-name-to-race mappings for ships whose race information is
+# missing from CCP's SDE (race_id=NULL, market_group_id=NULL).
+# These are typically "second line" T1 hulls like Algos, Corax, Dragoon, Talwar,
+# logistics cruisers, mining frigates, and other ships where the SDE has no
+# race data and no faction prefix to match against.
+_SHIPS_WITH_MISSING_SDE_RACE = {
+    # Destroyers (Bug 3: missing one per race)
+    "Algos": "Gallente",
+    "Corax": "Caldari",
+    "Dragoon": "Amarr",
+    "Talwar": "Minmatar",
+    # Mining frigates
+    "Bantam": "Caldari",
+    "Inquisitor": "Amarr",
+    "Navitas": "Gallente",
+    "Burst": "Minmatar",
+    "Venture": "Minmatar",
+    "Metamorphosis": "Amarr",
+    # Logistics cruisers (Tech I)
+    "Augoror": "Amarr",
+    "Osprey": "Caldari",
+    "Scythe": "Minmatar",
+    # Special / event ships
+    "Sunesis": "Amarr",
+    "Gnosis": "Gallente",
+    "Praxis": "Amarr",
+    "Drekavac": "Minmatar",
+    "Anhinga": "Caldari",
+    "Leshak": "Amarr",
+    "Thunderchild": "Caldari",
+    "Rodiva": "Caldari",
+    "Vedmak": "Amarr",
+    "Stormbringer": "Caldari",
+    "Kikimora": "Caldari",
+    "Damavik": "Caldari",
+    "Skybreaker": "Caldari",
+    "Pioneer": "Caldari",
+}
+
 
 def _corrected_race_name(row):
     """Return the corrected race name for a product row.
@@ -357,6 +397,277 @@ def _corrected_race_name(row):
 
     # Step 4: Fall back to base lore race, then Faction/Pirate
     return base_race or ("Faction/Pirate" if race_id else None)
+
+
+def _build_market_tree_from_rows(rows, market_groups: dict[int, dict]):
+    """Build a market browser-style tree from SQL result rows.
+
+    Uses market_group_id hierarchy from sde_market_groups to build the tree.
+    For Ships (category_id=6), adds race subdivision under each leaf group.
+
+    Args:
+        rows: SQL result rows (must include market_group_id, category_id, product_type_id, etc.)
+        market_groups: dict of {market_group_id: {parent_group_id: int, name: str, ...}}
+
+    Returns:
+        List of market tree root node dicts with nested structure.
+    """
+    from collections import defaultdict
+
+    # ── Step 1: Build parent → children mapping (two-pass) ──
+    # Pass 1: Create all nodes (empty children)
+    nodes: dict[int, dict] = {}
+    for mgid, mg in market_groups.items():
+        nodes[mgid] = {
+            "market_group_id": mgid,
+            "name": mg["name"],
+            "children": [],
+            "products": [],
+            "races": None,
+        }
+    # Pass 2: Link children to parents
+    children_of: dict[int, list[dict]] = defaultdict(list)
+    for mgid, mg in market_groups.items():
+        parent_id = mg.get("parent_group_id")
+        if parent_id is not None and parent_id in nodes:
+            children_of[parent_id].append(nodes[mgid])
+        elif parent_id is None:
+            children_of.setdefault(mgid, [])
+
+    # Link children into node objects (connect the tree for recursion)
+    for mgid in nodes:
+        nodes[mgid]["children"] = children_of.get(mgid, [])
+
+    # ── Step 2: Place each product into its market group ──
+    products_in_group: dict[int, list] = defaultdict(list)
+    for row in rows:
+        mgid = getattr(row, "market_group_id", None)
+        row_group_name = getattr(row, "group_name", None)
+        if mgid is None:
+            mgid = 0  # uncategorized
+        # Build product entry (same fields as before)
+        prod = {
+            "product_type_id": row.product_type_id,
+            "product_name": row.product_name,
+            "meta_group_name": getattr(row, "meta_group_name", None),
+            "meta_group_id": getattr(row, "meta_group_id", None),
+            "blueprint_type_id": row.blueprint_type_id,
+            "blueprint_type_name": getattr(row, "blueprint_type_name", str(row.product_type_id)),
+            "bpo_count": getattr(row, "bpo_count", 0) or 0,
+            "bpc_count": getattr(row, "bpc_count", 0) or 0,
+            "best_me": getattr(row, "best_me", None),
+            "best_te": getattr(row, "best_te", None),
+            "total_bpc_runs": getattr(row, "total_bpc_runs", 0) or 0,
+            "bpos": [],
+            "bpcs": [],
+            "is_reaction": getattr(row, "is_reaction", False) or False,
+            "group_name": row_group_name,
+        }
+        products_in_group[mgid].append(prod)
+
+    # ── Step 3: Detect ship groups by parent chain ──
+    def _is_ship_group(mgid: int) -> bool:
+        """Check if a market group is ultimately under Ships."""
+        visited = set()
+        current = mgid
+        while current is not None and current not in visited:
+            visited.add(current)
+            mg = market_groups.get(current)
+            if mg is None:
+                break
+            name = mg.get("name", "")
+            if name == "Ships" or "Ship" in name:
+                return True
+            current = mg.get("parent_group_id")
+        return False
+
+    def _assign_products(node: dict, is_ship_line: bool):
+        mgid = node["market_group_id"]
+        node_products = products_in_group.get(mgid, [])
+        has_children = bool(node.get("children"))
+
+        if is_ship_line and not has_children:
+            # Leaf ship group → group by race
+            if len(node_products) > 0:
+                node_name = node.get("name", "")
+                # If node name IS a known race AND all products share that race,
+                # skip the redundant race subgroup (fixes "Caldari Caldari" duplication)
+                first_race = node_products[0].get("_race_name")
+                all_same_race = first_race and all(
+                    p.get("_race_name") == first_race for p in node_products
+                )
+                if all_same_race and first_race == node_name:
+                    node["products"] = sorted(node_products, key=lambda p: p["product_name"])
+                    node["races"] = None
+                else:
+                    races: dict = {}
+                    for prod in node_products:
+                        race_name = prod.get("_race_name") or "Unknown"
+                        races.setdefault(race_name, {
+                            "race_name": race_name,
+                            "products": [],
+                        })["products"].append(prod)
+                    node["races"] = sorted(races.values(), key=lambda r: RACE_SORT_ORDER.get(r["race_name"], 99))
+                    node["products"] = None
+            else:
+                node["products"] = None
+                node["races"] = []
+        elif not has_children:
+            # Leaf non-ship group → products go directly
+            node["products"] = sorted(node_products, key=lambda p: p["product_name"])
+        else:
+            # Has children → all products bubble up to children
+            node["products"] = None
+            node["races"] = None
+            for child in node.get("children", []):
+                _assign_products(child, is_ship_line or _is_ship_group(child["market_group_id"]))
+
+    # ── Step 4: Precompute race name for ship group products ──
+    for mgid, prods in products_in_group.items():
+        is_ship = _is_ship_group(mgid)
+        for prod in prods:
+            if is_ship:
+                # If the market group name itself is a known race, use it directly
+                group_name = market_groups.get(mgid, {}).get("name", "")
+                group_is_race = group_name in RACE_SORT_ORDER
+                if group_is_race:
+                    prod["_race_name"] = group_name
+                else:
+                    prod["_race_name"] = _corrected_race_name_for_prod(prod)
+
+    # ── Step 4b: Assign uncategorized ship products (SDE data gap) ──
+    # Some Tech I ships (Algos, Corax, Dragoon, Talwar, logistics cruisers,
+    # mining frigates) have no market_group_id in CCP's SDE. We detect them
+    # by their group_name (e.g. "Frigate", "Destroyer", "Cruiser") and assign
+    # to the correct leaf race market group.
+    _SHIP_GROUPS = {"Frigate", "Destroyer", "Cruiser", "Battleship", "Battlecruiser",
+                     "Attack Battlecruiser", "Combat Battlecruiser",
+                     "Hauler", "Industrial", "Freighter",
+                     "Mining Barge", "Industrial Command Ship", "Capital Industrial Ship",
+                     "Carrier", "Dreadnought", "Supercarrier", "Titan",
+                     "Force Auxiliary", "Shuttle"}
+    # Map SDE group_name (singular) to market group parent name (plural).
+    # CCP uses "Standard Destroyers" (plural) but group_name is "Destroyer".
+    _SHIP_GROUP_TO_STANDARD_PARENT = {
+        "Frigate": "Standard Frigates",
+        "Destroyer": "Standard Destroyers",
+        "Cruiser": "Standard Cruisers",
+        "Battleship": "Standard Battleships",
+        "Battlecruiser": "Standard Battlecruisers",
+        "Hauler": "Standard Haulers",
+        "Carrier": "Standard Carriers",
+        "Dreadnought": "Standard Dreadnoughts",
+        "Titan": "Standard Titans",
+    }
+    uncategorized = products_in_group.get(0, [])
+    uncategorized_ships = [p for p in uncategorized if p.get("group_name") in _SHIP_GROUPS]
+    if uncategorized_ships:
+        # Build lookup: for each ship group (by the parent of race leaves),
+        # find which leaf mgids exist for each race.
+        # E.g. parent="Standard Destroyers" → {"Amarr": 465, "Caldari": 466, ...}
+        leaf_mg_by_parent: dict[str, dict[str, int]] = {}
+        for mgid_node, node in nodes.items():
+            if not node.get("children"):  # leaf node
+                mg = market_groups.get(mgid_node)
+                if not mg: continue
+                mg_name = mg.get("name", "")
+                parent_id = mg.get("parent_group_id")
+                if mg_name in RACE_SORT_ORDER and parent_id is not None:
+                    parent = market_groups.get(parent_id)
+                    if parent:
+                        leaf_mg_by_parent.setdefault(parent["name"], {})[mg_name] = mgid_node
+
+        assigned = []
+        remaining = []
+        for prod in uncategorized_ships:
+            pgname = prod.get("group_name", "")
+            race = prod.get("_race_name")
+            if not race or race == "Unknown":
+                race = _corrected_race_name_for_prod(prod)
+            if race and race in RACE_SORT_ORDER and pgname:
+                # Build the market group parent name from the SDE group_name.
+                # SDE uses singular but market groups use plural:
+                #   "Destroyer" → "Standard Destroyers"
+                #   "Frigate"   → "Standard Frigates"
+                sname = _SHIP_GROUP_TO_STANDARD_PARENT.get(pgname, f"Standard {pgname}")
+                if sname in leaf_mg_by_parent and race in leaf_mg_by_parent[sname]:
+                    target_mgid = leaf_mg_by_parent[sname][race]
+                    prod["_race_name"] = race  # Must set for _assign_products to use later
+                    products_in_group[target_mgid].append(prod)
+                    assigned.append(prod)
+                    continue
+                # Try the singular group name as parent: "Frigate", "Destroyer", etc.
+                if pgname in leaf_mg_by_parent and race in leaf_mg_by_parent[pgname]:
+                    target_mgid = leaf_mg_by_parent[pgname][race]
+                    prod["_race_name"] = race  # Must set for _assign_products to use later
+                    products_in_group[target_mgid].append(prod)
+                    assigned.append(prod)
+                    continue
+            remaining.append(prod)
+        # Keep remaining uncategorized items
+        other = [p for p in uncategorized if p not in uncategorized_ships]
+        products_in_group[0] = remaining + other
+
+    # ── Step 5: Build top-level tree from root nodes ──
+    roots = [mg for mgid, mg in market_groups.items() if mg.get("parent_group_id") is None]
+    root_nodes = []
+    for root in sorted(roots, key=lambda r: r["name"]):
+        mgid = root["market_group_id"]
+        node = {
+            "market_group_id": mgid,
+            "name": root["name"],
+            "children": children_of.get(mgid, []),
+            "products": None,
+            "races": None,
+        }
+        _assign_products(node, _is_ship_group(mgid))
+        if _node_has_content(node):
+            root_nodes.append(node)
+
+    return root_nodes
+
+
+def _corrected_race_name_for_prod(prod: dict) -> str:
+    """Determine race name for a product in a ship market group.
+
+    Uses product_name prefix matching (same logic as _corrected_race_name
+    but works with dict instead of SQLAlchemy row).
+    """
+    product_name = prod.get("product_name", "") or ""
+
+    # Check faction prefix overrides
+    for faction_prefix, race in _FACTION_RACE_CORRECTIONS.items():
+        if product_name.startswith(faction_prefix + " ") or product_name == faction_prefix:
+            return race
+
+    # Check hull-line races
+    for hull_prefix, race in _HULL_LINE_RACE.items():
+        if product_name.startswith(hull_prefix + " ") or product_name == hull_prefix:
+            return race
+
+    # Check explicit ship-name-to-race mappings (ships with missing SDE race data)
+    ship_race = _SHIPS_WITH_MISSING_SDE_RACE.get(product_name)
+    if ship_race:
+        return ship_race
+
+    # Fallback: try to determine from market group
+    # If we can figure it out from market group hierarchy
+    return "Unknown"
+
+
+def _node_has_content(node: dict) -> bool:
+    """Check if a market tree node (or its children) has any products."""
+    if node.get("products"):
+        return True
+    if node.get("races"):
+        for r in node["races"]:
+            if r.get("products"):
+                return True
+    for child in node.get("children", []):
+        if _node_has_content(child):
+            return True
+    return False
+
 
 def _build_blueprint_tree_from_rows(rows):
     """Convert SQL result rows into a nested Category → Group → [Race →] Product tree.
@@ -425,6 +736,7 @@ def _build_blueprint_tree_from_rows(rows):
             "total_bpc_runs": 0,
             "bpos": [],
             "bpcs": [],
+            "is_reaction": getattr(row, "is_reaction", False) or False,
         })
 
         # ── For owned tree: append specific blueprint items ──
@@ -531,9 +843,10 @@ async def get_blueprint_tree(
             a.location_flag,
             a.character_id,
             COALESCE(c.character_name, a.type_name) AS character_name,
-            c.corporation_name
+            c.corporation_name,
+            COALESCE((SELECT sb.is_reaction FROM sde_blueprints sb WHERE sb.type_id = a.type_id AND sb.activity_id IN (1, 11) LIMIT 1), false) AS is_reaction
         FROM assets a
-        JOIN sde_blueprint_products sbp ON sbp.type_id = a.type_id AND sbp.activity_id = 1
+        JOIN sde_blueprint_products sbp ON sbp.type_id = a.type_id AND sbp.activity_id IN (1, 11)
         LEFT JOIN sde_items si ON si.type_id = sbp.product_type_id
         LEFT JOIN characters c ON c.character_id = a.character_id
         WHERE a.is_blueprint = true
@@ -587,107 +900,83 @@ async def get_blueprint_catalog(
     db: AsyncSession = Depends(get_session),
 ):
     """
-    Return ALL manufacturable products (like in-game market) as a nested tree:
-    Category → Group → [Race →] Product.
+    Return ALL manufacturable products (like in-game market) as a nested tree
+    using the authoritative ESI Market Groups hierarchy.
 
-    Every product that has a blueprint is included, regardless of whether the
-    user owns it. Products are annotated with aggregate BPO/BPC counts so the
-    frontend can highlight owned items and dim unowned ones.
+    The tree structure comes from the CCP ESI API (static file) – NOT from
+    the SDE database's market_group_id (which has items with NULL values).
+    Items are resolved by name → type_id, then enriched with BPO/BPC data.
 
-    Sub-filters (applied client-side could also be server-side):
+    The tree structure is:
+      Root Market Group (e.g., "Ships", "Ship Equipment")
+        └─ Subgroup (e.g., "Propulsion Module", "Shield Module")
+
+    Sub-filters (applied server-side):
       - all:     every product shown, owned highlighted
       - bpo:     only products with bpo_count > 0
       - bpc:     only products with bpc_count > 0
       - t2:      only Tech II products with owned BPC
-      - custom:  Faction/Storyline/Officer meta-group items always visible
     """
-    from sqlalchemy import text
+    from app.services.static_tree_resolver import resolve_static_tree
 
-    sql = text("""
-        SELECT
-            si.category_id,
-            si.category_name,
-            si.group_id,
-            si.group_name,
-            si.race_id,
-            si.race_name,
-            sbp.product_type_id,
-            sbp.product_name,
-            sbp.type_id AS blueprint_type_id,
-            si.meta_group_name,
-            si.meta_group_id,
-            sb.tech_level,
-            COUNT(DISTINCT CASE WHEN a.is_blueprint_copy = false AND a.id IS NOT NULL THEN a.id END) AS bpo_count,
-            COUNT(DISTINCT CASE WHEN a.is_blueprint_copy = true AND a.id IS NOT NULL THEN a.id END) AS bpc_count,
-            MAX(a.blueprint_me) AS best_me,
-            MAX(a.blueprint_te) AS best_te,
-            COALESCE(SUM(CASE WHEN a.is_blueprint_copy = true AND a.character_id = :user_id THEN a.blueprint_runs ELSE 0 END), 0) AS total_bpc_runs
-        FROM sde_blueprints sb
-        JOIN sde_blueprint_products sbp
-            ON sbp.type_id = sb.type_id AND sbp.activity_id = 1
-        LEFT JOIN sde_items si
-            ON si.type_id = sbp.product_type_id
-        LEFT JOIN assets a
-            ON a.type_id = sb.type_id AND a.is_blueprint = true
-        WHERE sb.activity_id = 1
-          AND si.type_id IS NOT NULL
-          -- Check market_group_id on the blueprint item itself, not the product,
-          -- because some products (e.g. 1MN Afterburner) have no market_group
-          -- but their blueprint does.
-          AND EXISTS (
-              SELECT 1 FROM sde_items si2
-              WHERE si2.type_id = sb.type_id
-                AND si2.market_group_id IS NOT NULL
-          )
-          AND (sbp.product_name ILIKE :search OR :search IS NULL)
-        GROUP BY
-            si.category_id, si.category_name,
-            si.group_id, si.group_name,
-            si.race_id, si.race_name,
-            sbp.product_type_id, sbp.product_name,
-            sbp.type_id, si.meta_group_name, si.meta_group_id, sb.tech_level
-        ORDER BY
-            CASE COALESCE(si.category_name, 'Ship')
-                WHEN 'Ship' THEN 1
-                WHEN 'Module' THEN 2
-                WHEN 'Structure' THEN 3
-                WHEN 'Charge' THEN 4
-                WHEN 'Drone' THEN 5
-                WHEN 'Implant' THEN 6
-                WHEN 'Material' THEN 7
-                ELSE 99
-            END,
-            COALESCE(si.group_name, ''),
-            CASE si.race_name
-                WHEN 'Caldari' THEN 1
-                WHEN 'Minmatar' THEN 2
-                WHEN 'Amarr' THEN 3
-                WHEN 'Gallente' THEN 4
-                ELSE 99
-            END,
-            sbp.product_name
-    """)
+    tree = await resolve_static_tree(
+        db=db,
+        user_id=_user,
+        search=search,
+        filter_mode=filter or "all",
+    )
 
-    params = {"user_id": _user}
-    if search:
-        params["search"] = f"%{search}%"
-    else:
-        params["search"] = None
+    # Count total products across all tree nodes
+    def _count_products(nodes):
+        count = 0
+        for node in nodes:
+            if node.get("products"):
+                count += len(node["products"])
+            if node.get("children"):
+                count += _count_products(node["children"])
+        return count
 
-    result = await db.execute(sql, params)
-    rows = result.all()
+    total = _count_products(tree)
+    return {"categories": tree, "total_products": total}
+    """
+    Return ALL manufacturable products (like in-game market) as a nested tree
+    using the authoritative ESI Market Groups hierarchy.
 
-    # Apply server-side sub-filtering when requested
-    if filter == "bpo":
-        rows = [r for r in rows if (getattr(r, "bpo_count", 0) or 0) > 0]
-    elif filter == "bpc":
-        rows = [r for r in rows if (getattr(r, "bpc_count", 0) or 0) > 0]
-    elif filter == "t2":
-        rows = [r for r in rows if (getattr(r, "tech_level", 0) or 0) == 2
-                and (getattr(r, "bpc_count", 0) or 0) > 0]
+    The tree structure comes from the CCP ESI API (static file) – NOT from
+    the SDE database's market_group_id (which has items with NULL values).
+    Items are resolved by name → type_id, then enriched with BPO/BPC data.
 
-    categories = _build_blueprint_tree_from_rows(rows)
-    return {"categories": categories, "total_products": len(rows)}
+    The tree structure is:
+      Root Market Group (e.g., "Ships", "Ship Equipment")
+        └─ Subgroup (e.g., "Propulsion Module", "Shield Module")
+
+    Sub-filters (applied server-side):
+      - all:     every product shown, owned highlighted
+      - bpo:     only products with bpo_count > 0
+      - bpc:     only products with bpc_count > 0
+      - t2:      only Tech II products with owned BPC
+    """
+    from app.services.static_tree_resolver import resolve_static_tree
+
+    tree = await resolve_static_tree(
+        db=db,
+        user_id=_user,
+        search=search,
+        filter_mode=filter or "all",
+    )
+
+    # Count total products across all tree nodes
+    def _count_products(nodes):
+        count = 0
+        for node in nodes:
+            if node.get("products"):
+                count += len(node["products"])
+            if node.get("children"):
+                count += _count_products(node["children"])
+        return count
+
+    total = _count_products(tree)
+    return {"categories": tree, "total_products": total}
 
 
 # ── Blueprint Locations (for hangar selection dropdown) ────────────
@@ -739,6 +1028,7 @@ async def get_owned_blueprint_assets(
             a.location_name,
             a.location_flag,
             a.character_id,
+            a.is_corp_asset,
             COALESCE(c.character_name, a.type_name) AS character_name,
             c.corporation_name
         FROM assets a
@@ -753,6 +1043,12 @@ async def get_owned_blueprint_assets(
     bpos = []
     bpcs = []
     for row in rows:
+        is_corp = row.is_corp_asset or False
+        # For corp assets, the owner is the corporation, not the syncing character
+        if is_corp:
+            owner_name = row.corporation_name or row.character_name or ""
+        else:
+            owner_name = row.character_name or row.corporation_name or ""
         item = {
             "item_id": row.item_id,
             "blueprint_me": row.blueprint_me,
@@ -761,8 +1057,9 @@ async def get_owned_blueprint_assets(
             "location_name": row.location_name,
             "location_flag": row.location_flag,
             "character_id": row.character_id,
-            "character_name": row.character_name,
+            "character_name": owner_name,
             "corporation_name": row.corporation_name,
+            "is_corp_asset": is_corp,
         }
         if row.is_blueprint_copy:
             bpcs.append(item)
@@ -791,9 +1088,11 @@ async def get_blueprint_detail(
     - Manufacturing time (TE-adjusted)
     """
     # 1. Look up the blueprint -> product mapping
+    # NOTE: sb.product_type_id is NULL for most entries (only ~2% populated);
+    #       we must use sbp.product_type_id from the products join table.
     prod_sql = text("""
         SELECT
-            sb.product_type_id, sbp.quantity AS product_quantity,
+            sbp.product_type_id, sbp.quantity AS product_quantity,
             sb.manufacturing_time, sb.max_production_limit
         FROM sde_blueprints sb
         JOIN sde_blueprint_products sbp
@@ -847,7 +1146,7 @@ async def get_blueprint_detail(
     mat_sql = text("""
         SELECT
             bm.material_type_id,
-            bm.material_name,
+            COALESCE(si.name, bm.material_name) AS material_name,
             si.category_id,
             si.category_name,
             bm.quantity AS base_quantity,
@@ -856,7 +1155,7 @@ async def get_blueprint_detail(
         FROM sde_blueprint_materials bm
         LEFT JOIN sde_items si ON si.type_id = bm.material_type_id
         WHERE bm.type_id = :bp_id AND bm.activity_id = 1
-        ORDER BY bm.material_name
+        ORDER BY COALESCE(si.name, bm.material_name)
     """)
     mat_result = await db.execute(mat_sql, {"bp_id": blueprint_type_id})
     mat_rows = mat_result.all()
@@ -866,6 +1165,7 @@ async def get_blueprint_detail(
     for row in mat_rows:
         base_qty = row.base_quantity or 0
         adjusted = max(1, round(base_qty * runs * (1.0 - 0.01 * me)))
+        matVolume = float(row.material_volume) if row.material_volume else 0
         materials.append({
             "material_type_id": row.material_type_id,
             "material_name": row.material_name or f"Unknown ({row.material_type_id})",
@@ -874,7 +1174,8 @@ async def get_blueprint_detail(
             "base_quantity": base_qty,
             "adjusted_quantity": adjusted,
             "is_optional": bool(row.is_optional),
-            "volume": float(row.material_volume) if row.material_volume else None,
+            "volume": matVolume,
+            "total_volume": matVolume * adjusted,
         })
 
     # 4. Get skill requirements
@@ -923,7 +1224,7 @@ async def get_blueprint_detail(
         "base_manufacturing_time_sec": base_time,
         "te_adjusted_time_sec": te_adjusted_time,
         "materials": materials,
-        "materials_total_volume": round(sum(m.get("volume", 0) or 0 for m in materials), 2),
+        "materials_total_volume": round(sum(m.get("total_volume", 0) or 0 for m in materials), 2),
         "skills": skills,
         "me_applied": me,
         "te_applied": te,
@@ -1244,9 +1545,18 @@ async def calculate_build_cost(
     all_material_ids = set()
     item_plans = []
 
-    _RIG_MAT = {"none": 0.0, "t1": 0.02, "t2": 0.024}
+    # Manufacturing rigs (material bonus)
+    _MANU_RIG_MAT = {"none": 0.0, "t1": 0.02, "t2": 0.024}
+    # Reaction rigs (material bonus) — refineries use different rigs: t1_reaction (1%), t2_reaction (2%)
+    _REACT_RIG_MAT = {"none": 0.0, "t1_reaction": 0.01, "t2_reaction": 0.02}
     _SEC_MULT = {"highsec": 1.0, "lowsec": 1.9, "null": 2.1, "wh": 2.1}
-    rig_mat_bonus = _RIG_MAT.get(facility.rigs, 0.0) * _SEC_MULT.get(facility.security_class, 1.0)
+    # Choose rig table based on facility_type
+    # NPC stations have no rigs — force to "none" (Issue 6)
+    if facility.facility_type == "npc_station":
+        facility.rigs = "none"
+    _is_refinery = facility.facility_type == "refinery"
+    _rig_table = _REACT_RIG_MAT if _is_refinery else _MANU_RIG_MAT
+    rig_mat_bonus = _rig_table.get(facility.rigs, 0.0) * _SEC_MULT.get(facility.security_class, 1.0)
 
     for item in body.cart_items:
         mat_sql = text("""
@@ -1260,13 +1570,15 @@ async def calculate_build_cost(
                 sbp.product_type_id,
                 sbp.product_name,
                 sbp.quantity AS product_quantity,
-                sb.manufacturing_time
+                sb.manufacturing_time,
+                sb.is_reaction,
+                si.volume AS material_volume
             FROM sde_blueprint_materials sbm
             LEFT JOIN sde_items si ON si.type_id = sbm.material_type_id
-            JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id = 1
-            JOIN sde_blueprint_products sbp ON sbp.type_id = sbm.type_id AND sbp.activity_id = 1
+            JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id IN (1, 11)
+            JOIN sde_blueprint_products sbp ON sbp.type_id = sbm.type_id AND sbp.activity_id IN (1, 11)
             WHERE sbm.type_id = :bp_id
-              AND sbm.activity_id = 1
+              AND sbm.activity_id IN (1, 11)
         """)
         result = await db.execute(mat_sql, {"bp_id": item.blueprint_type_id})
         mats = result.all()
@@ -1284,12 +1596,14 @@ async def calculate_build_cost(
                     NULL AS product_type_id,
                     NULL AS product_name,
                     NULL AS product_quantity,
-                    sb.manufacturing_time
+                    sb.manufacturing_time,
+                    sb.is_reaction,
+                    si.volume AS material_volume
                 FROM sde_blueprint_materials sbm
                 LEFT JOIN sde_items si ON si.type_id = sbm.material_type_id
-                JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id = 1
+                JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id IN (1, 11)
                 WHERE sbm.type_id = :bp_id
-                  AND sbm.activity_id = 1
+                  AND sbm.activity_id IN (1, 11)
             """)
             result = await db.execute(mat_sql2, {"bp_id": item.blueprint_type_id})
             mats = result.all()
@@ -1315,10 +1629,17 @@ async def calculate_build_cost(
                 continue
             all_material_ids.add(m.material_type_id)
 
-            # Apply ME formula
+            # Determine if this is a reaction blueprint (no ME/TE)
+            m_is_reaction = getattr(m, "is_reaction", False) or False
+
             base_qty = m.base_quantity or 0
-            me_factor = 1.0 - item.me / 100.0
-            adjusted = max(1, math.ceil(base_qty * me_factor * (1.0 - rig_mat_bonus)))
+            if m_is_reaction:
+                # Reactions have NO ME/TE — fixed quantities
+                adjusted = base_qty
+            else:
+                # Apply ME formula
+                me_factor = 1.0 - item.me / 100.0
+                adjusted = max(1, math.ceil(base_qty * me_factor * (1.0 - rig_mat_bonus)))
 
             # Deduplicate by material_type_id (SDE product JOIN can cause row multiplication)
             if m.material_type_id in seen_materials:
@@ -1330,6 +1651,7 @@ async def calculate_build_cost(
                 continue
             else:
                 seen_materials[m.material_type_id] = len(materials)
+                matVolume = float(getattr(m, "material_volume", None)) if getattr(m, "material_volume", None) else 0
                 materials.append({
                     "material_type_id": m.material_type_id,
                     "material_name": getattr(m, "material_name", None) or f"Unknown ({m.material_type_id})",
@@ -1339,7 +1661,13 @@ async def calculate_build_cost(
                     "adjusted_quantity": adjusted,
                     "total_quantity": adjusted * item.runs,
                     "is_optional": getattr(m, "is_optional", False),
+                    "is_reaction": m_is_reaction,
+                    "volume": matVolume,
+                    "total_volume": matVolume * (adjusted * item.runs),
                 })
+
+        # Determine if the top-level blueprint is a reaction (all materials share the same bp is_reaction)
+        plan_is_reaction = any(m.get("is_reaction") for m in materials)
 
         item_plans.append({
             "blueprint_type_id": item.blueprint_type_id,
@@ -1348,6 +1676,7 @@ async def calculate_build_cost(
             "te": item.te,
             "product": product_info,
             "materials": materials,
+            "is_reaction": plan_is_reaction,
         })
 
     # ---- 2. Batch fetch Jita prices ----
@@ -1495,10 +1824,18 @@ async def calculate_build_cost(
                 "total_cost": round(total_cost, 2),
                 "price_source": price_source,
                 "is_optional": mat["is_optional"],
+                "is_reaction": mat.get("is_reaction", False),
             })
 
         # ---- Facility cost (EVE-korrekte Formel) ----
-        system_cost_index = facility.system_cost_index / 100.0 if facility.system_cost_index is not None else 0.05
+        # Use reaction cost index for reaction blueprints, manufacturing otherwise
+        plan_is_reaction = plan.get("is_reaction", False)
+        cost_index_activity = "reactions" if plan_is_reaction else "manufacturing"
+        if facility.system_cost_index is not None:
+            system_cost_index = facility.system_cost_index / 100.0
+        else:
+            # Default: 0.05 for manufacturing, 0.02 for reactions (reactions are typically cheaper)
+            system_cost_index = 0.02 if plan_is_reaction else 0.05
         facility_tax_rate = facility.tax_rate / 100.0 if facility.tax_rate else 0.0
         scc_surcharge_rate = 0.04
         structure_role_bonus = 0.0  # Default 0; erweiterbar via Facility-Config
@@ -1561,6 +1898,10 @@ async def calculate_build_cost(
             market_unit_price = prod_price["average_price"]
             market_price_source = "average"
 
+        # Reactions have NO ME/TE applied — set to None for clarity
+        applied_me = None if plan_is_reaction else plan["me"]
+        applied_te = None if plan_is_reaction else plan["te"]
+
         results.append({
             "blueprint_type_id": plan["blueprint_type_id"],
             "product_type_id": prod_tid,
@@ -1570,6 +1911,10 @@ async def calculate_build_cost(
             "runs": plan["runs"],
             "me": plan["me"],
             "te": plan["te"],
+            "applied_me": applied_me,
+            "applied_te": applied_te,
+            "is_reaction": plan_is_reaction,
+            "cost_index_used": cost_index_activity,
             "materials": material_costs,
             "total_material_cost": round(item_total_material, 2),
             "eiv": round(eiv, 2),
@@ -1582,13 +1927,16 @@ async def calculate_build_cost(
             "job_cost": round(scc_surcharge, 2),
             "total_cost": round(item_total, 2),
             "cost_per_unit": round(item_total / max(plan["runs"], 1), 2),
-            "product_sell_price": round(prod_price.get("sell_price_min"), 2) if prod_price.get("sell_price_min") else None,
+            "product_sell_price": round(market_unit_price, 2) if market_unit_price else None,
             "product_buy_price": round(prod_price.get("buy_price_max"), 2) if prod_price.get("buy_price_max") else None,
             "market_price_per_unit": round(market_unit_price, 2) if market_unit_price else None,
             "market_price_source": market_price_source,
             # Build time with TE applied (seconds)
+            # Reactions have NO TE — fixed build time regardless of TE skill
             "build_time_seconds": round(
                 (plan["product"]["manufacturing_time"] or 0) * plan["runs"] * (1.0 - 0.02 * min(plan["te"], 20))
+                if not plan_is_reaction
+                else (plan["product"]["manufacturing_time"] or 0) * plan["runs"]
             ) if plan["product"].get("manufacturing_time") else None,
         })
 
@@ -1628,6 +1976,7 @@ class BuildStepNode(BaseModel):
     me: int = 10
     te: int = 20
     depth: int = 0
+    is_reaction: bool = False
     materials: List[dict] = []
     sub_steps: List["BuildStepNode"] = []
 
@@ -1688,6 +2037,25 @@ async def get_build_steps(
             return None
         visited.add(cache_key)
 
+        # ── Determine if this step is a reaction ──
+        # Check the SDEBlueprint record to get is_reaction flag + correct activity_id
+        bp_check = text("""
+            SELECT is_reaction, activity_id, manufacturing_time
+            FROM sde_blueprints
+            WHERE type_id = :bp_id AND activity_id IN (1, 11)
+        """)
+        bp_check_result = await db.execute(bp_check, {"bp_id": bp_type_id})
+        bp_info = bp_check_result.fetchone()
+
+        step_is_reaction = False
+        step_activity_id = 1
+        if bp_info:
+            step_is_reaction = bp_info.is_reaction or False
+            step_activity_id = bp_info.activity_id or 1
+            # Use manufacturing_time from blueprint if available
+            if bp_info.manufacturing_time is not None:
+                cached_manufacturing_time = bp_info.manufacturing_time
+
         # Fetch blueprint info + materials + product
         sql = text("""
             SELECT
@@ -1704,17 +2072,17 @@ async def get_build_steps(
                 bpsi.name AS bp_name
             FROM sde_blueprint_materials sbm
             LEFT JOIN sde_items si ON si.type_id = sbm.material_type_id
-            JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id = 1
-            JOIN sde_blueprint_products sbp ON sbp.type_id = sbm.type_id AND sbp.activity_id = 1
+            JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id IN (1, 11)
+            JOIN sde_blueprint_products sbp ON sbp.type_id = sbm.type_id AND sbp.activity_id IN (1, 11)
             LEFT JOIN sde_items bpsi ON bpsi.type_id = sbm.type_id
             WHERE sbm.type_id = :bp_id
-              AND sbm.activity_id = 1
+              AND sbm.activity_id IN (1, 11)
         """)
         result = await db.execute(sql, {"bp_id": bp_type_id})
         rows = result.all()
 
         if not rows:
-            # Try without product join (reactions, etc.)
+            # Try without product join (reactions with no product entry)
             sql2 = text("""
                 SELECT
                     sbm.material_type_id,
@@ -1730,10 +2098,10 @@ async def get_build_steps(
                     bpsi.name AS bp_name
                 FROM sde_blueprint_materials sbm
                 LEFT JOIN sde_items si ON si.type_id = sbm.material_type_id
-                JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id = 1
+                JOIN sde_blueprints sb ON sb.type_id = sbm.type_id AND sb.activity_id IN (1, 11)
                 LEFT JOIN sde_items bpsi ON bpsi.type_id = sbm.type_id
                 WHERE sbm.type_id = :bp_id
-                  AND sbm.activity_id = 1
+                  AND sbm.activity_id IN (1, 11)
             """)
             result = await db.execute(sql2, {"bp_id": bp_type_id})
             rows = result.all()
@@ -1761,11 +2129,15 @@ async def get_build_steps(
                 continue
 
             base_qty = row.base_quantity or 0
-            # EVE ME-Formel: me/100 Reduktion + Rig-Materialbonus
-            adjusted = base_qty
-            if base_qty > 0:
-                me_factor = 1.0 - (step_me / 100.0)
-                adjusted = max(1, math.ceil(base_qty * me_factor * (1.0 - rig_mat_bonus)))
+            # Reactions have NO ME/TE — fixed quantities
+            if step_is_reaction:
+                adjusted = base_qty
+            else:
+                # EVE ME-Formel: me/100 Reduktion + Rig-Materialbonus
+                adjusted = base_qty
+                if base_qty > 0:
+                    me_factor = 1.0 - (step_me / 100.0)
+                    adjusted = max(1, math.ceil(base_qty * me_factor * (1.0 - rig_mat_bonus)))
             total_qty = adjusted * needed_runs
 
             # Deduplicate by material_type_id (SDE product JOIN can multiply rows)
@@ -1785,6 +2157,8 @@ async def get_build_steps(
                 "adjusted_quantity": adjusted,
                 "total_quantity": total_qty,
                 "is_optional": getattr(row, "is_optional", False),
+                "is_reaction": step_is_reaction,
+                "is_buildable": False,  # Will be set True if sub-step resolved
             }
 
             materials.append(mat_entry)
@@ -1794,13 +2168,18 @@ async def get_build_steps(
             material_type_ids = [m["material_type_id"] for m in materials if not m["is_optional"]]
 
             if material_type_ids:
-                # Find which of these material_type_ids are products of another blueprint
+                # Find which of these material_type_ids are products of another MANUFACTURING blueprint.
+                # Use activity_id = 1 (manufacturing only) — reaction blueprints (activity_id = 11)
+                # should NOT be expanded: their outputs (e.g. Fernite Carbide, Ferrogel) stay as
+                # leaf-level BUY items in the manufacturing tree, preventing moon material flood
+                # in the aggregated "Base Minerals" section.
                 manu_sql = text("""
                     SELECT
                         sbp.product_type_id,
                         sbp.type_id AS child_bp_type_id,
                         sbp.product_name,
                         sbp.quantity AS product_quantity,
+                        sb2.is_reaction,
                         bpsi2.name AS child_bp_name
                     FROM sde_blueprint_products sbp
                     JOIN sde_blueprints sb2 ON sb2.type_id = sbp.type_id AND sb2.activity_id = 1
@@ -1819,12 +2198,18 @@ async def get_build_steps(
                         "child_bp_name": getattr(mr, "child_bp_name", None),
                         "product_quantity": mr.product_quantity,
                         "product_name": mr.product_name,
+                        "is_reaction": getattr(mr, "is_reaction", False) or False,
                     }
 
                 # Now resolve sub-steps for each manufacturable material
                 for mat in materials:
                     child_info = manu_map.get(mat["material_type_id"])
                     if child_info:
+                        # Mark material as buildable
+                        mat_idx = seen_materials.get(mat["material_type_id"])
+                        if mat_idx is not None:
+                            materials[mat_idx]["is_buildable"] = True
+
                         # How many runs of the child BP to produce enough?
                         child_per_run = child_info["product_quantity"] or 1
                         child_runs_needed = max(
@@ -1853,6 +2238,7 @@ async def get_build_steps(
             "me": step_me,
             "te": step_te,
             "depth": depth,
+            "is_reaction": step_is_reaction,
             "materials": materials,
             "sub_steps": sub_steps,
         }

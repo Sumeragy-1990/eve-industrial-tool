@@ -1,5 +1,6 @@
 """Market Price Router – endpoints for cached market prices (Phase 4B) and market orders (Phase 4A)."""
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -79,20 +80,54 @@ async def api_get_prices_batch(
     }
 
 
+# Module-level flag for background refresh status
+_refresh_lock = asyncio.Lock()
+_refresh_running = False
+
+
+@router.get("/refresh/status")
+async def api_refresh_status():
+    """Check whether a background price refresh is currently running."""
+    global _refresh_running
+    return {"running": _refresh_running}
+
+
 @router.post("/refresh")
-async def api_refresh_prices(
-    db: AsyncSession = Depends(get_session),
-):
-    """Trigger a full refresh of cached prices from ESI market data."""
+async def api_refresh_prices():
+    """Trigger a full refresh of cached prices from ESI market data (async, background).
+
+    The actual ESI fetching runs as a background asyncio task so the HTTP request
+    returns immediately (202 Accepted). This avoids HTTP 504 Gateway Timeout errors
+    caused by the refresh taking >60s when fetching all pages across 4 regions.
+    """
+    global _refresh_running
+    if _refresh_running:
+        return {"status": "already_running", "message": "Price refresh is already running"}
+    _refresh_running = True
+    asyncio.create_task(_background_price_refresh())
+    return {
+        "status": "accepted",
+        "message": "Price refresh started in background",
+    }
+
+
+async def _background_price_refresh():
+    """Run price refresh in its own DB session (non-blocking)."""
+    global _refresh_running
+    from app.database import async_session_factory
+
     try:
-        stats = await refresh_all_prices(db)
-        return {
-            "status": "ok",
-            "stats": stats,
-            "message": f"Fetched {stats['fetched']} orders, updated {stats['updated']} prices ({stats['errors']} errors)",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Price refresh failed: {e}")
+        async with async_session_factory() as db:
+            stats = await refresh_all_prices(db)
+            logger.info(
+                "Background price refresh done: %d updated, %d errors",
+                stats.get("updated", 0),
+                stats.get("errors", 0),
+            )
+    except Exception as exc:
+        logger.warning("Background price refresh failed (non-fatal): %s", exc)
+    finally:
+        _refresh_running = False
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -110,12 +145,7 @@ async def api_sync_market_orders(
         return {
             "status": "ok",
             "stats": stats,
-            "message": (
-                f"Synced {stats['regions_fetched']} regions, "
-                f"stored {stats['orders_stored']} orders, "
-                f"updated {stats['prices_updated']} prices "
-                f"({stats['errors']} errors)"
-            ),
+            "message": f"Synced {stats.get('synced', 0)} orders, {stats.get('errors', 0)} errors",
         }
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Market order sync failed: {e}")
@@ -123,99 +153,83 @@ async def api_sync_market_orders(
 
 @router.get("/orders/search")
 async def api_search_market_orders(
-    q: str = Query(..., description="Search query for type name"),
-    region_id: Optional[int] = Query(None, description="Filter by region ID"),
-    is_buy_order: Optional[bool] = Query(None, description="Filter by buy/sell"),
-    limit: int = Query(50, description="Max results"),
+    q: str = Query(..., min_length=2, description="Search query for type name"),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_session),
 ):
     """Search for types by name and return their market order summary."""
     try:
-        results = await search_market_orders_by_name(
-            db, query=q, region_id=region_id,
-            is_buy_order=is_buy_order, limit=limit,
-        )
-        return {"total": len(results), "results": results}
+        results = await search_market_orders_by_name(db, q, limit)
+        return {
+            "status": "ok",
+            "results": results,
+        }
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Search failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Market order search failed: {e}")
 
 
 @router.get("/orders/{type_id}")
 async def api_get_market_orders(
     type_id: int,
-    region_id: Optional[int] = Query(None, description="Filter by region ID"),
-    is_buy_order: Optional[bool] = Query(None, description="Filter by buy/sell"),
-    limit: int = Query(100, description="Max orders to return"),
+    region_id: Optional[int] = None,
+    limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_session),
 ):
     """Get individual market orders for a specific type."""
     try:
-        orders = await get_market_orders(
-            db, type_id=type_id, region_id=region_id,
-            is_buy_order=is_buy_order, limit=limit,
-        )
+        orders = await get_market_orders(db, type_id, region_id, limit)
         return {
-            "total": len(orders),
-            "orders": [
-                {
-                    "order_id": o.order_id,
-                    "type_id": o.type_id,
-                    "is_buy_order": o.is_buy_order,
-                    "price": o.price,
-                    "volume_remaining": o.volume_remaining,
-                    "volume_total": o.volume_total,
-                    "location_id": o.location_id,
-                    "system_id": o.system_id,
-                    "region_id": o.region_id,
-                    "range": o.range,
-                    "duration": o.duration,
-                    "issued": o.issued.isoformat() if o.issued else None,
-                }
-                for o in orders
-            ],
+            "status": "ok",
+            "orders": orders,
         }
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch orders: {e}")
+        raise HTTPException(status_code=502, detail=f"Fetching market orders failed: {e}")
 
 
 @router.get("/orderbook/{type_id}")
 async def api_get_order_book(
     type_id: int,
-    region_id: int = Query(10000002, description="Region ID (default: The Forge/Jita)"),
-    limit: int = Query(50, description="Max orders per side"),
+    region_id: int = Query(default=10000002, description="Region ID (default: The Forge/Jita)"),
     db: AsyncSession = Depends(get_session),
 ):
     """Get the order book (top buy + top sell orders) for a type in a region."""
     try:
-        book = await get_order_book(db, type_id=type_id, region_id=region_id, limit=limit)
-        return book
+        book = await get_order_book(db, type_id, region_id)
+        return {
+            "status": "ok",
+            "orderbook": book,
+        }
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch order book: {e}")
+        raise HTTPException(status_code=502, detail=f"Fetching order book failed: {e}")
 
 
 @router.get("/status")
 async def api_market_status(
     db: AsyncSession = Depends(get_session),
 ):
-    """Return how many prices are cached and when they were last updated."""
-    from sqlalchemy import func as sqlfunc, select
-    count_stmt = select(sqlfunc.count(CachedPrice.id))
-    count = await db.scalar(count_stmt)
-    latest_stmt = select(sqlfunc.max(CachedPrice.updated_at))
-    latest = await db.scalar(latest_stmt)
+    """Get current market price cache status."""
+    from sqlalchemy import func, select
+
+    result = await db.execute(
+        select(
+            func.count(CachedPrice.type_id).label("total"),
+            func.count(CachedPrice.sell_price_min).label("with_sell"),
+            func.count(CachedPrice.buy_price_max).label("with_buy"),
+        )
+    )
+    row = result.one()
     return {
-        "cached_prices": count or 0,
-        "last_updated": latest.isoformat() if latest else None,
-        "has_prices": (count or 0) > 0,
+        "total_cached": row.total,
+        "with_sell_prices": row.with_sell,
+        "with_buy_prices": row.with_buy,
     }
 
 
 @router.get("/regions")
 async def api_get_regions():
-    """Return the list of tracked market regions."""
     return {
         "regions": [
-            {"id": rid, "name": REGION_NAMES.get(rid, f"Region {rid}")}
+            {"id": rid, "name": REGION_NAMES.get(rid, f"Unknown ({rid})")}
             for rid in KEY_REGIONS
-        ]
+        ],
     }

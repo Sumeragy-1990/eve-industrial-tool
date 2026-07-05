@@ -29,3 +29,4 @@ venv/
 
 # NOTE: package-lock.json is intentionally NOT ignored — commit it for
 # reproducible `npm ci` installs.
+.aider*

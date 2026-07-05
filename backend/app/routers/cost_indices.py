@@ -144,14 +144,15 @@ async def search_solar_systems(
 @router.get("/system-cost-index")
 async def get_system_cost_index(
     system_name: str = Query(..., description="Solar system name (e.g. Irjunen)"),
+    activity: str = Query("manufacturing", regex="^(manufacturing|reactions)$", description="Activity type — 'manufacturing' or 'reactions'"),
     db: AsyncSession = Depends(get_session),
 ):
-    """Look up a solar system by name and return its manufacturing cost index.
+    """Look up a solar system by name and return its cost index for the given activity.
 
     Steps:
     1. Find system_id from SDE by system_name
     2. Fetch industry systems data from ESI
-    3. Return the manufacturing cost_index for that system
+    3. Return the cost_index for the requested activity (manufacturing|reactions)
     """
     # 1. Lookup system_id from SDE
     from app.models.sde_solar_system import SDESolarSystem
@@ -190,12 +191,13 @@ async def get_system_cost_index(
         if s.get("solar_system_id") == system.system_id:
             indices = s.get("cost_indices", [])
             for idx in indices:
-                if idx.get("activity") == "manufacturing":
+                if idx.get("activity") == activity:
                     return {
                         "system_name": system.system_name,
                         "system_id": system.system_id,
                         "cost_index": idx.get("cost_index"),
                         "cost_index_pct": round(idx.get("cost_index", 0) * 100, 4),
+                        "activity": activity,
                         "found": True,
                     }
 
@@ -204,6 +206,7 @@ async def get_system_cost_index(
         "system_id": system.system_id,
         "cost_index": None,
         "cost_index_pct": None,
+        "activity": activity,
         "found": True,
-        "detail": "System found in SDE but no manufacturing cost index data available from ESI.",
+        "detail": f"System found in SDE but no {activity} cost index data available from ESI.",
     }
