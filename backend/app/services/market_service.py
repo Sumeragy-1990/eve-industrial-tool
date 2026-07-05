@@ -51,6 +51,10 @@ async def refresh_all_prices(db: AsyncSession) -> dict:
     that items like Jita prices are fully populated. Previously only
     page=1 was fetched, which missed large portions of the market.
     Now also fetches BUY orders so buy_price_max is populated.
+
+    Also fetches ESI /markets/prices/ to populate average_price and
+    adjusted_price for ALL items (including PI materials that may not
+    have active market orders in key regions).
     """
     client = ESIClient(db)
     stats = {"fetched": 0, "updated": 0, "errors": 0}
@@ -97,6 +101,32 @@ async def refresh_all_prices(db: AsyncSession) -> dict:
                 logger.warning(f"Error fetching region {region_id}: {e}")
                 stats["errors"] += 1
 
+        # ── ESI /markets/prices/: average + adjusted for ALL items ──
+        try:
+            logger.info("Fetching ESI /markets/prices/ for average/adjusted prices...")
+            resp = await client._http.get(
+                "https://esi.evetech.net/latest/markets/prices/"
+            )
+            if resp.is_error:
+                logger.warning(f"ESI /markets/prices/ failed: {resp.status_code}")
+            else:
+                all_prices = resp.json()
+                esi_prices_count = 0
+                for entry in all_prices:
+                    tid = entry.get("type_id")
+                    avg = entry.get("average_price")
+                    adj = entry.get("adjusted_price")
+                    if tid and (avg is not None or adj is not None):
+                        await _upsert_price(db, tid, average_price=avg, adjusted_price=adj)
+                        esi_prices_count += 1
+                        if esi_prices_count % 500 == 0:
+                            await db.flush()
+                logger.info(f"Updated {esi_prices_count} items from /markets/prices/")
+                stats["updated"] += esi_prices_count
+        except Exception as e:
+            logger.warning(f"Error fetching ESI /markets/prices/: {e}")
+            stats["errors"] += 1
+
         await db.commit()
     finally:
         await client.close()
@@ -110,6 +140,7 @@ async def _upsert_price(
     sell_price_min: Optional[float] = None,
     buy_price_max: Optional[float] = None,
     average_price: Optional[float] = None,
+    adjusted_price: Optional[float] = None,
 ):
     """Upsert a cached price entry."""
     stmt = select(CachedPrice).where(CachedPrice.type_id == type_id)
@@ -123,6 +154,8 @@ async def _upsert_price(
             existing.buy_price_max = buy_price_max
         if average_price is not None:
             existing.average_price = average_price
+        if adjusted_price is not None:
+            existing.adjusted_price = adjusted_price
         existing.updated_at = datetime.now(timezone.utc)
     else:
         # Get type name from SDE
@@ -135,6 +168,7 @@ async def _upsert_price(
             sell_price_min=sell_price_min,
             buy_price_max=buy_price_max,
             average_price=average_price,
+            adjusted_price=adjusted_price,
         ))
 
 
