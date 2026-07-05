@@ -1931,13 +1931,16 @@ async def calculate_build_cost(
             "product_buy_price": round(prod_price.get("buy_price_max"), 2) if prod_price.get("buy_price_max") else None,
             "market_price_per_unit": round(market_unit_price, 2) if market_unit_price else None,
             "market_price_source": market_price_source,
-            # Build time with TE applied (seconds)
+            # Build time with TE + Skills + Implants applied (seconds)
             # Reactions have NO TE — fixed build time regardless of TE skill
             "build_time_seconds": round(
-                (plan["product"]["manufacturing_time"] or 0) * plan["runs"] * (1.0 - 0.02 * min(plan["te"], 20))
+                (plan["product"]["manufacturing_time"] or 0) * plan["runs"] * time_mult
                 if not plan_is_reaction
                 else (plan["product"]["manufacturing_time"] or 0) * plan["runs"]
             ) if plan["product"].get("manufacturing_time") else None,
+            # Manufacturing time per run (without multipliers) for sub-step time calculation
+            "manufacturing_time_per_run": (plan["product"]["manufacturing_time"] or 0)
+                if plan["product"].get("manufacturing_time") else None,
         })
 
     grand_total = grand_total_material + grand_total_facility + grand_total_job
@@ -1977,6 +1980,7 @@ class BuildStepNode(BaseModel):
     te: int = 20
     depth: int = 0
     is_reaction: bool = False
+    manufacturing_time_per_run: Optional[int] = None
     materials: List[dict] = []
     sub_steps: List["BuildStepNode"] = []
 
@@ -2049,12 +2053,13 @@ async def get_build_steps(
 
         step_is_reaction = False
         step_activity_id = 1
+        step_manufacturing_time = 0
         if bp_info:
             step_is_reaction = bp_info.is_reaction or False
             step_activity_id = bp_info.activity_id or 1
             # Use manufacturing_time from blueprint if available
             if bp_info.manufacturing_time is not None:
-                cached_manufacturing_time = bp_info.manufacturing_time
+                step_manufacturing_time = bp_info.manufacturing_time
 
         # Fetch blueprint info + materials + product
         sql = text("""
@@ -2239,6 +2244,7 @@ async def get_build_steps(
             "te": step_te,
             "depth": depth,
             "is_reaction": step_is_reaction,
+            "manufacturing_time_per_run": step_manufacturing_time or 0,
             "materials": materials,
             "sub_steps": sub_steps,
         }

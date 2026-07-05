@@ -3613,12 +3613,16 @@
 
             // Fetch build-steps for each item to enable inline sub-material display
             // (needed for saved orders loaded from localStorage where _buildStepsData is not persisted)
+            // Wichtig: runs/me/te uebergeben damit Sub-Material-Mengen korrekt sind (Bugfix: ohne = runs=1)
             for (var _bsi = 0; _bsi < order.items.length; _bsi++) {
                 var _bsItem = order.items[_bsi];
                 if (!_bsItem.blueprint_type_id) continue;
                 try {
+                    var _bsRuns = _bsItem.runs || 1;
+                    var _bsMe = _bsItem.me != null ? _bsItem.me : 10;
+                    var _bsTe = _bsItem.te != null ? _bsItem.te : 20;
                     var _bsResp = await fetch(
-                        "/api/blueprints/" + _bsItem.blueprint_type_id + "/build-steps",
+                        "/api/blueprints/" + _bsItem.blueprint_type_id + "/build-steps?runs=" + _bsRuns + "&me=" + _bsMe + "&te=" + _bsTe,
                         { credentials: "include" }
                     );
                     if (_bsResp.ok) {
@@ -4308,9 +4312,41 @@
             }
             html += '">' + costDisplay + '</span>';
 
-            // Build time
-            var buildTimeSec = item.build_time_seconds || (item.build_cost && item.build_cost.build_time_seconds) || null;
-            html += '<span class="bp-order-prod-time">' + (buildTimeSec ? formatDuration(buildTimeSec) : '-') + '</span>';
+            // Build time — main item time + longest sub-step time (parallele Produktion)
+            var _mainBuildTimeSec = item.build_time_seconds || (item.build_cost && item.build_cost.build_time_seconds) || null;
+            var _subBuildTimeSec = 0;
+            if (item._buildStepsData && item._buildStepsData.steps && item._buildStepsData.steps.length > 0) {
+                // Walk sub-steps to find the longest single sub-step build time
+                function _walkMaxSubTime(step) {
+                    if (!step || !step.sub_steps) return 0;
+                    var maxTime = 0;
+                    for (var _wsi = 0; _wsi < step.sub_steps.length; _wsi++) {
+                        var _sub = step.sub_steps[_wsi];
+                        if (_sub.manufacturing_time_per_run && _sub.runs_needed) {
+                            // Sub-steps use default TE=20 and no skills, but apply TE formula
+                            var _subTe = _sub.te != null ? _sub.te : 20;
+                            var _subTime = _sub.manufacturing_time_per_run * _sub.runs_needed * (1.0 - 0.02 * Math.min(_subTe, 20));
+                            if (_subTime > maxTime) maxTime = _subTime;
+                        }
+                        // Recurse deeper
+                        var _deeper = _walkMaxSubTime(_sub);
+                        if (_deeper > maxTime) maxTime = _deeper;
+                    }
+                    return maxTime;
+                }
+                for (var _rootIdx = 0; _rootIdx < item._buildStepsData.steps.length; _rootIdx++) {
+                    var _rootStep = item._buildStepsData.steps[_rootIdx];
+                    var _rootMax = _walkMaxSubTime(_rootStep);
+                    if (_rootMax > _subBuildTimeSec) _subBuildTimeSec = _rootMax;
+                }
+            }
+            var _totalBuildTimeSec = (_mainBuildTimeSec || 0) + _subBuildTimeSec;
+            var _buildTimeDisplay = _totalBuildTimeSec > 0
+                ? formatDuration(Math.round(_totalBuildTimeSec))
+                : (_mainBuildTimeSec ? formatDuration(_mainBuildTimeSec) : '-');
+            html += '<span class="bp-order-prod-time" title="Haupt: ' + (_mainBuildTimeSec ? formatDuration(_mainBuildTimeSec) : '-') +
+                ' | Langsamstes Sub-Item: ' + (_subBuildTimeSec > 0 ? formatDuration(Math.round(_subBuildTimeSec)) : '-') + '">' +
+                _buildTimeDisplay + '</span>';
 
             // Build vs Buy summary for this product
             let buildQty = 0, buyQty = 0;
