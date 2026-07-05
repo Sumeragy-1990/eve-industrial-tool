@@ -2050,7 +2050,7 @@ a, .btn, .nav-link, .dropdown-item, .list-group-item,
 /* Product row (always visible, clickable to expand) */
 .bp-order-product-row {
     display: grid;
-    grid-template-columns: 22px 1fr 70px 50px 90px 90px;
+    grid-template-columns: 22px 1fr 70px 50px 70px 70px 90px 90px;
     gap: 4px;
     align-items: center;
     padding: 6px 8px;

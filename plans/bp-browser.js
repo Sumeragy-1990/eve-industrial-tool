@@ -3957,6 +3957,7 @@
         item.build_cost.buy_material_total = buyTotal;
         item.build_cost.build_qty = buildQty;
         item.build_cost.buy_qty = buyQty;
+        item.build_cost.total_material_cost = buildTotal + buyTotal;
         item.build_cost.total_cost = buildTotal + buyTotal + (item.build_cost.facility_cost || 0) + (item.build_cost.job_cost || 0);
     }
 

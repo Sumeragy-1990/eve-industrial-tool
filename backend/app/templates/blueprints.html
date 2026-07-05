@@ -983,6 +983,23 @@
                             <i class="bi bi-x-circle"></i> Clear All Overrides
                         </button>
                     </div>
+                    <div class="bp-multibuy-paste mt-3" style="border-top:1px solid rgba(255,255,255,0.08);padding-top:10px;">
+                        <div style="font-size:0.72rem;color:#ffc107;margin-bottom:4px;display:flex;align-items:center;gap:4px;">
+                            <i class="bi bi-clipboard-paste"></i> Multibuy Paste
+                            <i class="bi bi-info-circle text-secondary" style="cursor:help;font-size:0.6rem;"
+                               title="Paste from EVE Multibuy / Market copy.&#10;Formats:&#10;· ItemName&#9;Qty&#9;UnitPrice&#10;· ItemName&#9;Qty&#9;UnitPrice&#9;TotalPrice&#10;· UnitPrice (one per line, matches material order)&#10;Uses EU format: 1.234,56"></i>
+                        </div>
+                        <textarea id="bpMultibuyPasteInput" rows="3"
+                            style="width:100%;font-size:0.65rem;padding:4px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.3);color:#ccc;resize:vertical;"
+                            placeholder="Paste Multibuy data here...&#10;&#10;e.g.: Tritanium&#9;8800000&#9;3.72&#10;or paste a column of unit prices"></textarea>
+                        <div style="display:flex;gap:4px;margin-top:4px;">
+                            <button class="btn btn-sm btn-warning" style="font-size:0.65rem;padding:2px 8px;"
+                                onclick="BP.pasteMultibuyPrices()">
+                                <i class="bi bi-check2"></i> Apply Prices
+                            </button>
+                            <span id="bpMultibuyResult" style="font-size:0.6rem;color:#28a745;align-self:center;"></span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
