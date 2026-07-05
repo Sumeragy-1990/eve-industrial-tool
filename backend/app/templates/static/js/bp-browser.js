@@ -3334,23 +3334,95 @@
     function clearCart() {
         if (!confirm("Clear all items from cart?")) return;
         _cart = [];
-        _lastBuildCostData = null;
-        document.getElementById("bpBuildResult").innerHTML = "";
         saveCart();
         renderCart();
         aggregateMaterials();
-        clearBuildPlanSummary();
         if (_bpTreeData) renderBlueprintTree(_bpTreeData.categories);
     }
 
-    /** Reset the persistent build plan summary panel */
+    /** Reset the persistent build plan summary panel — now a no-op since panel is removed */
     function clearBuildPlanSummary() {
-        var tableEl = document.getElementById("bpBuildPlanTable");
-        var emptyEl = document.getElementById("bpBuildPlanEmpty");
-        var totalsDiv = document.getElementById("bpBuildPlanTotals");
-        if (tableEl) tableEl.innerHTML = '';
-        if (emptyEl) emptyEl.style.display = '';
-        if (totalsDiv) totalsDiv.style.display = 'none';
+        // No-op: build plan panel removed from HTML — costs now shown directly in cart
+    }
+
+    /** Compute BUILD cost (materials at sell prices) and BUY cost (products at sell prices) for cart.
+     *  @returns {{buildCost: number|null, buyCost: number|null}} */
+    async function computeCartCosts() {
+        if (!_cart || _cart.length === 0) {
+            return { buildCost: null, buyCost: null };
+        }
+
+        // ── BUY cost: sell price of each finished product × runs ──
+        var productTypeIds = _cart.map(function(c) { return c.product_type_id; });
+        await fetchBatchPrices(productTypeIds);
+
+        var buyCost = 0;
+        for (var ci = 0; ci < _cart.length; ci++) {
+            var c = _cart[ci];
+            var priceInfo = getEffectivePrice(c.product_type_id);
+            if (priceInfo.price != null) {
+                buyCost += priceInfo.price * c.runs;
+            }
+        }
+
+        // ── BUILD cost: aggregated materials at sell prices ──
+        var materialMap = {};
+
+        for (var ci2 = 0; ci2 < _cart.length; ci2++) {
+            var cartItem = _cart[ci2];
+            try {
+                var te = cartItem.te != null ? cartItem.te : 10;
+                var data = await apiGet("/api/blueprints/" + cartItem.blueprint_type_id +
+                    "/build-steps?me=" + cartItem.me + "&te=" + te + "&runs=" + cartItem.runs + "&max_depth=5");
+
+                var aggMats = data.aggregated_materials || [];
+                if (aggMats.length > 0) {
+                    for (var ai = 0; ai < aggMats.length; ai++) {
+                        var am = aggMats[ai];
+                        var key = am.material_type_id;
+                        if (!materialMap[key]) {
+                            materialMap[key] = { name: am.material_name, total_qty: 0 };
+                        }
+                        materialMap[key].total_qty += am.total_quantity;
+                    }
+                } else {
+                    var directMats = (data.steps && data.steps[0] && data.steps[0].materials) || [];
+                    for (var di = 0; di < directMats.length; di++) {
+                        var dm = directMats[di];
+                        if (dm.is_optional) continue;
+                        var key = dm.material_type_id;
+                        if (!materialMap[key]) {
+                            materialMap[key] = { name: dm.material_name, total_qty: 0 };
+                        }
+                        materialMap[key].total_qty += dm.total_quantity;
+                    }
+                }
+            } catch (e) {
+                console.warn("build-steps failed for bp " + cartItem.blueprint_type_id + ":", e);
+            }
+        }
+
+        // Fetch prices for all material types
+        var materialTypeIds = Object.keys(materialMap).map(Number);
+        if (materialTypeIds.length > 0) {
+            await fetchBatchPrices(materialTypeIds);
+        }
+
+        var buildCost = 0;
+        var keys = Object.keys(materialMap);
+        for (var ki = 0; ki < keys.length; ki++) {
+            var typeId = parseInt(keys[ki]);
+            var mat = materialMap[keys[ki]];
+            var priceInfo = getEffectivePrice(typeId);
+            if (priceInfo.price != null) {
+                buildCost += priceInfo.price * mat.total_qty;
+            }
+        }
+
+        return {
+            buildCost: buildCost > 0 ? buildCost : null,
+            buyCost: buyCost > 0 ? buyCost : null
+        };
     }
 
     function renderCart() {
@@ -3363,6 +3435,11 @@
             container.innerHTML = '<div class="text-center text-secondary py-3" style="font-size:0.78rem;">' +
                 '<i class="bi bi-cart"></i> Cart is empty.<br>' +
                 '<small>Click "Add to Cart" on a blueprint.</small></div>';
+            // Reset cost display
+            var buildEl = document.getElementById("bpCartBuildCost");
+            var buyEl = document.getElementById("bpCartBuyCost");
+            if (buildEl) buildEl.textContent = "-";
+            if (buyEl) buyEl.textContent = "-";
             return;
         }
 
@@ -3391,6 +3468,7 @@
                 this.value = _cart[idx].runs;
                 saveCart();
                 aggregateMaterials();
+                computeCartCosts().then(updateCartCostDisplay);
             });
         });
 
@@ -3402,8 +3480,26 @@
             });
         });
 
-        // Populate order-target split-dropdown
-        renderOrderTargetDropdown();
+        // Compute and display BUILD / BUY costs
+        computeCartCosts().then(updateCartCostDisplay);
+    }
+
+    /** Update the BUILD and BUY cost display in the cart footer */
+    function updateCartCostDisplay(costs) {
+        var buildEl = document.getElementById("bpCartBuildCost");
+        var buyEl = document.getElementById("bpCartBuyCost");
+        if (!buildEl || !buyEl) return;
+
+        if (costs.buildCost != null) {
+            buildEl.textContent = formatIsk(costs.buildCost);
+        } else {
+            buildEl.textContent = "—";
+        }
+        if (costs.buyCost != null) {
+            buyEl.textContent = formatIsk(costs.buyCost);
+        } else {
+            buyEl.textContent = "—";
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -3909,58 +4005,9 @@
         }
     }
 
-    /** Populate the order-target dropdown in the cart */
-    function renderOrderTargetDropdown() {
-        const menu = document.getElementById("bpOrderTargetDropdown");
-        if (!menu) return;
-        // Keep the first 3 items (Station wählen, Direkt, divider) and rebuild the rest
-        const itemsToKeep = [];
-        for (let ci = 0; ci < 3; ci++) {
-            const child = menu.children[ci];
-            if (child) itemsToKeep.push(child);
-        }
-        menu.innerHTML = "";
-        for (let ci = 0; ci < itemsToKeep.length; ci++) {
-            menu.appendChild(itemsToKeep[ci]);
-        }
-        if (_productionOrders.length === 0) {
-            const emptyLi = document.createElement("li");
-            emptyLi.className = "dropdown-item text-muted small disabled";
-            emptyLi.textContent = "No existing orders";
-            menu.appendChild(emptyLi);
-            return;
-        }
-        for (let i = 0; i < _productionOrders.length; i++) {
-            const o = _productionOrders[i];
-            const li = document.createElement("li");
-            const a = document.createElement("a");
-            a.className = "dropdown-item";
-            a.href = "#";
-            a.innerHTML = '<i class="bi bi-journal-plus"></i> ' + escHtml(o.name) +
-                ' <span class="text-muted small">(' + (o.items ? o.items.length : 0) + ' items)</span>';
-            a.addEventListener("click", function (idx) {
-                return function (e) {
-                    e.preventDefault();
-                    BP.sendCartToOrder(idx);
-                };
-            }(i));
-            li.appendChild(a);
-            menu.appendChild(li);
-        }
-    }
-
-    /** Send cart to order: show station selector modal first */
+    /** Send cart to order: directly creates order without station selector modal.
+     *  Shows BUILD and BUY costs in the cart footer as a summary. */
     async function sendCartToOrder(targetOrderIndex) {
-        if (_cart.length === 0) {
-            alert("Cart is empty. Add items to cart first.");
-            return;
-        }
-        // Show station selector modal — confirm or cancel both proceed
-        showStationSelector(targetOrderIndex);
-    }
-
-    /** Send cart to order directly (bypass station selector) — uses current config as-is */
-    async function sendCartToOrderDirect(targetOrderIndex) {
         if (_cart.length === 0) {
             alert("Cart is empty. Add items to cart first.");
             return;
@@ -3968,16 +4015,8 @@
         await _proceedCreateOrder(targetOrderIndex);
     }
 
-    /** Station Selector state — target order index for pending creation */
-    let _stationSelectorPendingTarget = null;
-
-    /** Guard flag: prevents _proceedCreateOrder from double-firing
-     *  when confirmStationSelector and hidden.bs.modal race. */
-    let _stationSelectorProcessing = false;
-
     /** Open station selector for invention — sets the context flag so
-     *  confirmStationSelector saves cost index to _inventionCostIndex
-     *  instead of creating an order. */
+     *  the modal confirm handler saves cost index to _inventionCostIndex. */
     function showInventionStationSelector() {
         _inventionStationSelectorActive = true;
         var c = loadConfig();
@@ -4009,50 +4048,10 @@
         bsModal.show();
     }
 
-    /** Show the station selector modal, pre-filled from current config */
-    function showStationSelector(targetOrderIndex) {
-        var c = loadConfig();
-
-        // Pre-fill modal fields from config
-        setSel("bpSelFacilityType", c.facility_type || "npc_station");
-        setSel("bpSelRigs", c.rigs || "none");
-        var sysNameEl = document.getElementById("bpSelSystemName");
-        if (sysNameEl) sysNameEl.value = c.system_name || "";
-        var idxResultEl = document.getElementById("bpSelIdxResult");
-        if (idxResultEl) {
-            idxResultEl.textContent = c.system_cost_index != null ? c.system_cost_index.toFixed(2) + "%" : "—";
-        }
-        var manualIdxEl = document.getElementById("bpSelIdxManual");
-        if (manualIdxEl) {
-            manualIdxEl.value = c.system_cost_index != null ? c.system_cost_index : 5.0;
-        }
-        var priceSell = document.getElementById("bpSelPriceSell");
-        var priceBuy = document.getElementById("bpSelPriceBuy");
-        if (priceSell) priceSell.checked = (c.price_source !== "jita_buy");
-        if (priceBuy) priceBuy.checked = (c.price_source === "jita_buy");
-
-        // Store target on the modal element itself — no module-level state,
-        // no hidden.bs.modal event listener, no race condition.
-        var modalEl = document.getElementById("bpStationSelectorModal");
-        if (!modalEl) return;
-        modalEl._orderTarget = targetOrderIndex;
-
-        // Clean up any stale Bootstrap instance before showing
-        try {
-            var old = bootstrap.Modal.getInstance(modalEl);
-            if (old) old.dispose();
-        } catch(e) {}
-
-        var bsModal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
-        bsModal.show();
-    }
-
-    /** Confirm button handler — reads _orderTarget from the modal element directly.
-     *  When _inventionStationSelectorActive is true, saves cost index to invention
-     *  and re-renders. Otherwise proceeds with order creation. */
+    /** Confirm button handler for the station selector modal.
+     *  Only used for invention now (saves cost index). */
     async function confirmStationSelector() {
         var modalEl = document.getElementById("bpStationSelectorModal");
-        var targetIdx = modalEl ? modalEl._orderTarget : undefined;
 
         // Extract cost index from modal fields
         var systemCostIndex;
@@ -4067,11 +4066,10 @@
             systemCostIndex = null;
         }
 
-        // ── Invention context: just save cost index, re-render ──────────
         if (_inventionStationSelectorActive) {
             _inventionStationSelectorActive = false;
             if (systemCostIndex != null) {
-                _inventionCostIndex = systemCostIndex / 100; // convert % to decimal
+                _inventionCostIndex = systemCostIndex / 100;
                 var ciEl = document.getElementById("bpInvCostIndex");
                 if (ciEl) ciEl.value = _inventionCostIndex;
                 if (_inventionData && _inventionData.has_invention) {
@@ -4082,33 +4080,9 @@
                     if (summaryEl) summaryEl.innerHTML = _buildInventionSummary(_inventionData);
                 }
             }
-            // Close modal
-            if (modalEl) {
-                try { var bsModal = bootstrap.Modal.getInstance(modalEl); if (bsModal) bsModal.dispose(); } catch(e) {}
-            }
-            return;
         }
 
-        // ── Order context: full config save + proceed ────────────────────
-        try {
-            var c = loadConfig();
-            c.facility_type = getSel("bpSelFacilityType") || "npc_station";
-            c.rigs = getSel("bpSelRigs") || "none";
-            c.system_name = getElVal("bpSelSystemName") || "";
-            if (systemCostIndex != null) {
-                c.system_cost_index = systemCostIndex;
-            } else {
-                c.system_cost_index = parseFloat(getElVal("bpSelIdxManual")) || null;
-            }
-            c.price_source = (document.getElementById("bpSelPriceBuy") && document.getElementById("bpSelPriceBuy").checked) ? "jita_buy" : "jita_sell";
-            if (typeof c.tax_rate !== "number") c.tax_rate = 5.0;
-            saveConfig();
-            renderConfigBar();
-        } catch (err) {
-            console.error("[confirmStationSelector] config save failed:", err);
-        }
-
-        // Close modal synchronously — no events, just DOM manipulation
+        // Close modal
         if (modalEl) {
             try { var bsModal = bootstrap.Modal.getInstance(modalEl); if (bsModal) bsModal.dispose(); } catch(e) {}
             modalEl.classList.remove("show");
@@ -4116,23 +4090,14 @@
             modalEl.setAttribute("aria-hidden", "true");
             modalEl.removeAttribute("aria-modal");
             modalEl.removeAttribute("role");
-            modalEl._orderTarget = undefined;
         }
         document.querySelectorAll(".modal-backdrop").forEach(function(el) { el.remove(); });
         document.body.classList.remove("modal-open");
         document.body.style.overflow = "";
         document.body.style.paddingRight = "";
-
-        // Guard: cart must not be empty
-        if (!_cart || _cart.length === 0) {
-            alert("Cart ist leer — bitte erst Blueprints hinzufügen.");
-            return;
-        }
-
-        await _proceedCreateOrder(targetIdx);
     }
 
-        /** Internal: create or append order (used by station selector and fallback) */
+    /** Internal: create or append order (used by sendCartToOrder) */
     async function _proceedCreateOrder(targetOrderIndex) {
         if (_cart.length === 0) {
             // Cart could have been cleared already; just return silently
@@ -4160,7 +4125,6 @@
 
         // Clear cart
         _cart = [];
-        _lastBuildCostData = null;
         saveCart();
         renderCart();
 
@@ -6636,61 +6600,6 @@
         return loadConfig();
     }
 
-    /** Legacy: saveBuildConfig reads form fields and saves */
-    function saveBuildConfig() {
-        const c = loadConfig();
-        const stationSel = document.getElementById("bpBuildStation");
-        c.station_id = stationSel ? parseInt(stationSel.value) || null : null;
-        c.station_name = stationSel && stationSel.selectedOptions.length
-            ? stationSel.selectedOptions[0].textContent : "";
-        c.rigs = document.getElementById("bpBuildRigs")?.value || "none";
-        c.tax_rate = parseFloat(document.getElementById("bpBuildTax")?.value) || 5.0;
-        c.skill_industry = parseInt(document.getElementById("bpSkillIndustry")?.value) || 5;
-        c.skill_adv_industry = parseInt(document.getElementById("bpSkillAdvIndustry")?.value) || 5;
-        c.skill_supply_chain = parseInt(document.getElementById("bpSkillSupplyChain")?.value) || 4;
-        saveConfig();
-        renderConfigBar();
-        const btn = document.querySelector('button[onclick="BP.saveBuildConfig()"]');
-        if (btn) {
-            const orig = btn.textContent;
-            btn.textContent = "✓ Saved";
-            btn.classList.add("btn-success");
-            btn.classList.remove("btn-outline-secondary");
-            setTimeout(function () {
-                btn.textContent = orig;
-                btn.classList.remove("btn-success");
-                btn.classList.add("btn-outline-secondary");
-            }, 1200);
-        }
-    }
-
-    /** Apply config to form fields (legacy) */
-    function applyBuildConfig(config) {
-        const sel = document.getElementById("bpBuildStation");
-        if (sel && config.station_id) {
-            const opt = sel.querySelector('option[value="' + config.station_id + '"]');
-            if (opt) {
-                sel.value = config.station_id;
-            } else if (config.station_name) {
-                const el = document.createElement("option");
-                el.value = config.station_id;
-                el.textContent = config.station_name;
-                sel.appendChild(el);
-                sel.value = config.station_id;
-            }
-        }
-        const rigs = document.getElementById("bpBuildRigs");
-        if (rigs) rigs.value = config.rigs || "none";
-        const tax = document.getElementById("bpBuildTax");
-        if (tax) { tax.value = config.tax_rate || 5; tax.dispatchEvent(new Event("input")); }
-        const si = document.getElementById("bpSkillIndustry");
-        if (si) si.value = config.skill_industry || 5;
-        const sa = document.getElementById("bpSkillAdvIndustry");
-        if (sa) sa.value = config.skill_adv_industry || 5;
-        const sc = document.getElementById("bpSkillSupplyChain");
-        if (sc) sc.value = config.skill_supply_chain || 4;
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  STATION PRESETS CRUD (Phase B)
     // ═══════════════════════════════════════════════════════════════
@@ -7566,291 +7475,6 @@
             alert("Recalculation error: " + err.message);
         }
     }
-
-    var _buildStationsLoaded = false;
-    function loadBuildStations() {
-        if (_buildStationsLoaded) return;
-        var sel = document.getElementById("bpBuildStation");
-        if (!sel) return;
-        sel.innerHTML = '<option value="">Loading stations…</option>';
-        fetch("/api/industry/stations?limit=500", { credentials: "include" })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                sel.innerHTML = '<option value="">-- Select station --</option>';
-                var saved = loadBuildConfig();
-                (data.stations || []).forEach(function (s) {
-                    var opt = document.createElement("option");
-                    opt.value = s.location_id;
-                    opt.textContent = s.station_name;
-                    sel.appendChild(opt);
-                });
-                _buildStationsLoaded = true;
-                if (saved.station_id) applyBuildConfig(saved);
-            })
-            .catch(function () {
-                sel.innerHTML = '<option value="">-- Failed to load --</option>';
-            });
-    }
-
-    function toggleBuildCost() {
-        var panel = document.getElementById("bpBuildCostPanel");
-        var label = document.getElementById("bpBuildCostLabel");
-        if (!panel || !label) return;
-        var isVisible = panel.style.display !== "none";
-        if (isVisible) {
-            panel.style.display = "none";
-            label.textContent = "Calculate Build Cost";
-        } else {
-            panel.style.display = "block";
-            label.textContent = "Hide Build Cost";
-            loadBuildStations();
-            // Apply saved config on first open
-            var config = loadBuildConfig();
-            if (config.station_id) applyBuildConfig(config);
-        }
-    }
-
-    function runBuildCost() {
-        var stationSel = document.getElementById("bpBuildStation");
-        var stationId = stationSel ? parseInt(stationSel.value) || null : null;
-        if (!stationId) {
-            alert("Please select a station first.");
-            return;
-        }
-
-        var cart = _cart; // from cart module
-        if (!cart || cart.length === 0) {
-            document.getElementById("bpBuildResult").innerHTML =
-                '<div class="alert alert-warning py-1 px-2 small mb-0">Cart is empty.</div>';
-            return;
-        }
-
-        var cartItems = cart.map(function (c) {
-            return {
-                blueprint_type_id: c.blueprint_type_id || c.bp_type_id,
-                me: c.me != null ? c.me : 0,
-                te: c.te != null ? c.te : 20,
-                runs: c.runs || 1
-            };
-        });
-
-        var body = {
-            character_id: window.BP_CHARACTER_ID || 0,
-            cart_items: cartItems,
-            facility: {
-                facility_type: "npc_station",
-                station_id: stationId,
-                rigs: document.getElementById("bpBuildRigs")?.value || "none",
-                tax_rate: parseFloat(document.getElementById("bpBuildTax")?.value) || 5.0
-            },
-            skills: {
-                industry: parseInt(document.getElementById("bpSkillIndustry")?.value) || 5,
-                advanced_industry: parseInt(document.getElementById("bpSkillAdvIndustry")?.value) || 5,
-                supply_chain_management: parseInt(document.getElementById("bpSkillSupplyChain")?.value) || 4
-            }
-        };
-
-        document.getElementById("bpBuildResult").innerHTML =
-            '<div class="text-center text-secondary small py-3"><div class="spinner-border spinner-border-sm"></div> Calculating…</div>';
-
-        fetch("/api/blueprints/build-cost", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-            credentials: "include"
-        })
-            .then(function (r) {
-                if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || "API error"); });
-                return r.json();
-            })
-            .then(renderBuildResult)
-            .catch(function (err) {
-                document.getElementById("bpBuildResult").innerHTML =
-                    '<div class="alert alert-danger py-1 px-2 small mb-0">Error: ' + escHtml(err.message) + '</div>';
-            });
-    }
-
-    // Last build cost result (persists across panel open/close)
-    var _lastBuildCostData = null;
-
-    function renderBuildResult(data) {
-        // Store for persistent summary
-        _lastBuildCostData = data;
-
-        var html = "";
-
-        html += '<table class="table table-sm table-borderless small mb-1" style="font-size:0.68rem;">';
-        html += '<thead><tr>';
-        html += '<th>Item</th><th class="text-end">Runs</th><th class="text-end">Material</th>';
-        html += '<th class="text-end">Job</th><th class="text-end">Facility</th><th class="text-end">Total</th>';
-        html += '<th class="text-end">Market</th><th class="text-center">Verdict</th>';
-        html += '</tr></thead><tbody>';
-
-        (data.items || []).forEach(function (item) {
-            var mat = item.total_material_cost || 0;
-            var job = item.job_cost || 0;
-            var fac = item.facility_cost || 0;
-            var total = item.total_cost || 0;
-
-            // Market price comparison
-            var marketPer = item.market_price_per_unit || null;
-            var totalQty = item.total_product_quantity || item.runs || 1;
-            var marketTotal = marketPer ? marketPer * totalQty : null;
-            var costPer = item.cost_per_unit || total;
-            var verdictHtml = '';
-            if (!marketPer) {
-                verdictHtml = '<span class="badge" style="font-size:0.55rem; background:#555;">N/A</span>';
-            } else if (costPer <= marketPer) {
-                var pct = marketPer > 0 ? (((marketPer - costPer) / marketPer) * 100).toFixed(0) : 0;
-                verdictHtml = '<span class="badge" style="font-size:0.58rem; background:#198754;">BUILD</span>';
-                if (pct > 0) verdictHtml += ' <span style="font-size:0.5rem; color:#28a745;">-' + pct + '%</span>';
-            } else {
-                var pct = costPer > 0 ? (((costPer - marketPer) / marketPer) * 100).toFixed(0) : 0;
-                verdictHtml = '<span class="badge" style="font-size:0.58rem; background:#dc3545;">BUY</span>';
-                if (pct > 0) verdictHtml += ' <span style="font-size:0.5rem; color:#dc3545;">+' + pct + '%</span>';
-            }
-
-            html += '<tr>';
-            html += '<td>' + escHtml(item.product_name || "Item #" + item.product_type_id) + '</td>';
-            html += '<td class="text-end">' + (item.runs || 1) + '</td>';
-            html += '<td class="text-end">' + formatIsk(mat) + '</td>';
-            html += '<td class="text-end">' + formatIsk(job) + '</td>';
-            html += '<td class="text-end">' + formatIsk(fac) + '</td>';
-            html += '<td class="text-end"><strong>' + formatIsk(total) + '</strong></td>';
-            html += '<td class="text-end text-secondary" style="font-size:0.62rem;">' + (marketTotal ? formatIsk(marketTotal) : '-') + '</td>';
-            html += '<td class="text-center">' + verdictHtml + '</td>';
-            html += '</tr>';
-        });
-
-        html += '</tbody></table>';
-
-        // Grand total row — use server-computed totals
-        html += '<div class="border-top pt-1 px-1">';
-        html += '<div class="d-flex justify-content-between small"><span>Material Cost</span><strong>' + formatIsk(data.grand_total_material_cost || 0) + '</strong></div>';
-        html += '<div class="d-flex justify-content-between small"><span>Job Cost</span><strong>' + formatIsk(data.grand_total_job_cost || 0) + '</strong></div>';
-        html += '<div class="d-flex justify-content-between small"><span>Facility Tax</span><strong>' + formatIsk(data.grand_total_facility_cost || 0) + '</strong></div>';
-        html += '<div class="d-flex justify-content-between small fw-bold"><span>Total</span><strong style="color:#28a745;">' + formatIsk(data.grand_total || 0) + '</strong></div>';
-
-        // Compute market total across all items
-        var marketGrand = 0;
-        var hasAnyMarketPrice = false;
-        (data.items || []).forEach(function(item) {
-            var mp = item.market_price_per_unit;
-            var tq = item.total_product_quantity || item.runs || 1;
-            if (mp) { marketGrand += mp * tq; hasAnyMarketPrice = true; }
-        });
-        if (hasAnyMarketPrice) {
-            html += '<div class="d-flex justify-content-between small mt-1 pt-1 border-top border-secondary">';
-            html += '<span>Market Total</span><strong style="color:#ffc107;">' + formatIsk(marketGrand) + '</strong>';
-            html += '</div>';
-        }
-        html += '</div>';
-
-        // Pricing info
-        var pricing = data.pricing;
-        if (pricing) {
-            html += '<div class="text-muted small mt-1 px-1">';
-            html += 'Prices: ' + escHtml(pricing.source) +
-                    ' | Missing: ' + (pricing.missing_prices || 0) +
-                    ' | Overrides: ' + (pricing.overrides_applied || 0);
-            html += '</div>';
-        }
-
-        document.getElementById("bpBuildResult").innerHTML = html;
-
-        // Also update the persistent Build Plan Summary
-        updateBuildPlanSummary(data);
-    }
-
-    /** Populate the persistent build plan summary panel */
-    function updateBuildPlanSummary(data) {
-        var tableEl = document.getElementById("bpBuildPlanTable");
-        var emptyEl = document.getElementById("bpBuildPlanEmpty");
-        var totalsDiv = document.getElementById("bpBuildPlanTotals");
-
-        if (!data || !data.items || data.items.length === 0) {
-            if (tableEl) tableEl.innerHTML = '';
-            if (emptyEl) emptyEl.style.display = '';
-            if (totalsDiv) totalsDiv.style.display = 'none';
-            return;
-        }
-
-        // Build compact summary table with Buy vs Build badge
-        var html = '<table class="table table-sm table-dark table-borderless mb-0" style="font-size:0.64rem;">';
-        html += '<thead><tr style="font-size:0.55rem; color:#888;">';
-        html += '<th>Item</th><th class="text-end">Qty</th>';
-        html += '<th class="text-end">Build</th><th class="text-end">Buy</th>';
-        html += '<th class="text-center">Verdict</th>';
-        html += '</tr></thead><tbody>';
-
-        (data.items || []).forEach(function (item) {
-            var total = item.total_cost || 0;
-            var buildPer = item.cost_per_unit || total;
-            var marketPer = item.market_price_per_unit || null;
-            var totalQty = item.total_product_quantity || item.runs || 1;
-            var marketTotal = marketPer ? marketPer * totalQty : null;
-
-            // Determine verdict
-            var verdictHtml = '';
-            var verdictColor = '';
-            if (!marketPer) {
-                verdictHtml = '<span class="badge" style="font-size:0.55rem; background:#555;">N/A</span>';
-            } else if (buildPer <= marketPer) {
-                var savings = marketPer > 0 ? (((marketPer - buildPer) / marketPer) * 100).toFixed(0) : 0;
-                verdictHtml = '<span class="badge" style="font-size:0.55rem; background:#198754;">BUILD ✓</span>';
-                if (savings > 0) {
-                    verdictHtml += ' <span style="font-size:0.5rem; color:#28a745;">-' + savings + '%</span>';
-                }
-            } else {
-                var extra = buildPer > 0 ? (((buildPer - marketPer) / marketPer) * 100).toFixed(0) : 0;
-                verdictHtml = '<span class="badge" style="font-size:0.55rem; background:#dc3545;">BUY ✓</span>';
-                if (extra > 0) {
-                    verdictHtml += ' <span style="font-size:0.5rem; color:#dc3545;">+' + extra + '%</span>';
-                }
-            }
-
-            html += '<tr>';
-            html += '<td style="max-width:85px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">';
-            html += escHtml(item.product_name || "Item #" + item.product_type_id);
-            html += '</td>';
-            html += '<td class="text-end">' + (item.runs || 1) + 'x</td>';
-            html += '<td class="text-end fw-bold" style="color:#28a745;">' + formatIsk(total) + '</td>';
-            html += '<td class="text-end text-secondary" style="font-size:0.6rem;">';
-            html += marketTotal ? formatIsk(marketTotal) : '-';
-            html += '</td>';
-            html += '<td class="text-center">' + verdictHtml + '</td>';
-            html += '</tr>';
-        });
-
-        html += '</tbody></table>';
-
-        if (tableEl) tableEl.innerHTML = html;
-        if (emptyEl) emptyEl.style.display = 'none';
-
-        // Grand totals
-        document.getElementById("bpPlanMaterial").textContent = formatIsk(data.grand_total_material_cost || 0);
-        document.getElementById("bpPlanJob").textContent = formatIsk(data.grand_total_job_cost || 0);
-        document.getElementById("bpPlanFacility").textContent = formatIsk(data.grand_total_facility_cost || 0);
-        document.getElementById("bpPlanGrand").textContent = formatIsk(data.grand_total || 0);
-        if (totalsDiv) totalsDiv.style.display = '';
-    }
-
-    /** Refresh the build plan summary (re-run build cost with current config) */
-    function refreshBuildPlan() {
-        // Re-use runBuildCost logic
-        runBuildCost();
-    }
-
-    // Tax slider live value update
-    (function () {
-        var taxSlider = document.getElementById("bpBuildTax");
-        var taxVal = document.getElementById("bpBuildTaxVal");
-        if (taxSlider && taxVal) {
-            taxSlider.addEventListener("input", function () {
-                taxVal.textContent = parseFloat(taxSlider.value).toFixed(1);
-            });
-        }
-    })();
 
     // ═══════════════════════════════════════════════════════════════
     //  PUBLIC API (exposed to onclick handlers in HTML)
@@ -8976,16 +8600,11 @@
         checkMaterials: checkMaterials,
         exportBuyOrder: exportBuyOrder,
         reloadDetail: reloadDetail,
-        toggleBuildCost: toggleBuildCost,
-        runBuildCost: runBuildCost,
-        saveBuildConfig: saveBuildConfig,
-        refreshBuildPlan: refreshBuildPlan,
         openStockThresholdModal: openStockThresholdModal,
         saveStockGlobalDefault: saveStockGlobalDefault,
         saveStockOverride: saveStockOverride,
         removeStockOverride: removeStockOverride,
         sendCartToOrder: sendCartToOrder,
-        sendCartToOrderDirect: sendCartToOrderDirect,
         createOrder: createOrder,
         saveOrders: saveOrders,
         deleteOrder: deleteOrder,
@@ -8996,7 +8615,6 @@
         editOrderName: editOrderName,
         renderConfigBar: renderConfigBar,
         applyStationPresetDirect: applyStationPresetDirect,
-        renderOrderTargetDropdown: renderOrderTargetDropdown,
         openConfigModal: openConfigModal,
         applyConfigPanel: applyConfigPanel,
         selectConfigCharacter: selectConfigCharacter,

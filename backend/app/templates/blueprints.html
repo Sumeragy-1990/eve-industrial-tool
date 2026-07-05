@@ -718,138 +718,22 @@
 
             <!-- Cart Footer -->
             <div class="bp-cart-footer" id="bpCartFooter">
-                <!-- Toggle Build Cost -->
-                <button class="btn btn-sm btn-outline-info w-100" onclick="BP.toggleBuildCost()" id="bpBuildCostLabel">
-                    <i class="bi bi-calculator"></i> Calculate Build Cost
+                <!-- Cart Cost Summary -->
+                <div id="bpCartCostSummary" class="mt-1" style="font-size:0.78rem;">
+                    <div class="d-flex justify-content-between align-items-center py-1 px-1">
+                        <span><i class="bi bi-hammer"></i> BUILD Cost</span>
+                        <span id="bpCartBuildCost" class="fw-bold" style="color:#28a745;">-</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center py-1 px-1" style="border-top:1px solid rgba(255,255,255,0.06);">
+                        <span><i class="bi bi-cart"></i> BUY Cost</span>
+                        <span id="bpCartBuyCost" class="fw-bold" style="color:#ffc107;">-</span>
+                    </div>
+                </div>
+
+                <!-- Send to New Order (simple button, no station selector) -->
+                <button class="btn btn-sm btn-success w-100 mt-2" onclick="BP.sendCartToOrder()" id="bpSendToOrderBtn">
+                    <i class="bi bi-send"></i> Send to New Order
                 </button>
-
-                <!-- Build Cost Panel (hidden by default) -->
-                <div id="bpBuildCostPanel" style="display:none; margin-top:6px;">
-                    <div class="small text-secondary mb-1" style="font-size:0.72rem;">
-                        <i class="bi bi-gear"></i> Facility Configuration
-                    </div>
-
-                    <!-- Facility Type -->
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">Facility Type</label>
-                        <select class="form-select form-select-sm" id="bpBuildFacilityType" style="font-size:0.72rem;">
-                            <option value="npc_station">NPC Station</option>
-                            <option value="citadel">Citadel / Engineering Complex</option>
-                        </select>
-                    </div>
-
-                    <!-- Station / Structure Select -->
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">Station / Structure</label>
-                        <select class="form-select form-select-sm" id="bpBuildStation" style="font-size:0.72rem;">
-                            <option value="">-- Select station --</option>
-                        </select>
-                    </div>
-
-                    <!-- Rigs -->
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">Rigs</label>
-                        <select class="form-select form-select-sm" id="bpBuildRigs" style="font-size:0.72rem;">
-                            <option value="none">None</option>
-                            <option value="t1">T1 Manufacturing Rig</option>
-                            <option value="t2">T2 Manufacturing Rig</option>
-                        </select>
-                    </div>
-
-                    <!-- Tax Rate -->
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">
-                            Tax Rate: <span id="bpBuildTaxVal" class="text-warning">5.0</span>%
-                        </label>
-                        <input type="range" class="form-range" id="bpBuildTax" min="0" max="25" value="5.0" step="0.1" style="height:8px;">
-                        <div class="d-flex justify-content-between" style="font-size:0.6rem;">
-                            <span class="text-secondary">0%</span>
-                            <span class="text-secondary">25%</span>
-                        </div>
-                    </div>
-
-                    <!-- Skills -->
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">Industry Skill (0-5)</label>
-                        <input type="number" class="form-control form-control-sm" id="bpSkillIndustry" min="0" max="5" value="5" style="font-size:0.72rem;">
-                    </div>
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">Advanced Industry Skill (0-5)</label>
-                        <input type="number" class="form-control form-control-sm" id="bpSkillAdvIndustry" min="0" max="5" value="5" style="font-size:0.72rem;">
-                    </div>
-                    <div class="mb-1">
-                        <label class="small" style="font-size:0.7rem;">Supply Chain Management (0-5)</label>
-                        <input type="number" class="form-control form-control-sm" id="bpSkillSupplyChain" min="0" max="5" value="4" style="font-size:0.72rem;">
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="d-flex gap-1 mt-2">
-                        <button class="btn btn-sm btn-primary flex-fill" onclick="BP.runBuildCost()" style="font-size:0.72rem;">
-                            <i class="bi bi-calculator"></i> Calculate
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="BP.saveBuildConfig()" style="font-size:0.72rem;">
-                            <i class="bi bi-save"></i> Save
-                        </button>
-                    </div>
-
-                    <!-- Build Result -->
-                    <div id="bpBuildResult" class="mt-2" style="font-size:0.72rem;"></div>
-                </div>
-
-                <!-- Build Plan Summary (persistent) -->
-                <div class="mt-2 border-top border-secondary pt-2" id="bpBuildPlanPanel">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                        <span class="small fw-bold" style="font-size:0.72rem;">
-                            <i class="bi bi-clipboard-data"></i> Build Plan Summary
-                        </span>
-                        <button class="btn btn-sm btn-outline-info" onclick="BP.refreshBuildPlan()" title="Refresh Build Plan" style="font-size:0.65rem; padding:1px 6px;">
-                            <i class="bi bi-arrow-repeat"></i>
-                        </button>
-                    </div>
-
-                    <!-- Empty state -->
-                    <div id="bpBuildPlanEmpty" class="text-center text-secondary py-2" style="font-size:0.7rem;">
-                        <i class="bi bi-inbox"></i> No build plan yet.<br>
-                        <small>Add items to cart and calculate build cost above.</small>
-                    </div>
-
-                    <!-- Build Plan Table -->
-                    <div id="bpBuildPlanTable" style="font-size:0.65rem;"></div>
-
-                    <!-- Build Plan Totals -->
-                    <div id="bpBuildPlanTotals" style="display:none; margin-top:4px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.08);">
-                        <div class="d-flex justify-content-between small" style="font-size:0.68rem;">
-                            <span class="text-secondary">Material Cost</span>
-                            <span id="bpPlanMaterial" class="fw-bold">-</span>
-                        </div>
-                        <div class="d-flex justify-content-between small" style="font-size:0.68rem;">
-                            <span class="text-secondary">Job Cost</span>
-                            <span id="bpPlanJob" class="fw-bold">-</span>
-                        </div>
-                        <div class="d-flex justify-content-between small" style="font-size:0.68rem;">
-                            <span class="text-secondary">Facility Tax</span>
-                            <span id="bpPlanFacility" class="fw-bold">-</span>
-                        </div>
-                        <div class="d-flex justify-content-between small fw-bold mt-1" style="font-size:0.72rem; border-top:1px solid var(--t-accent); padding-top:3px;">
-                            <span style="color:var(--t-accent);">Grand Total</span>
-                            <span id="bpPlanGrand" style="color:#28a745;">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Send to Production Orders (Split Dropdown) -->
-                <div class="btn-group w-100 mt-2" id="bpSendToOrderGroup">
-                    <button class="btn btn-sm btn-success" onclick="BP.sendCartToOrder()" id="bpSendToOrderBtn">
-                        <i class="bi bi-send"></i> Send to New Order
-                    </button>
-                    <button class="btn btn-sm btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" id="bpOrderTargetDropdown">
-                        <li><a class="dropdown-item" href="#" onclick="BP.sendCartToOrder()"><i class="bi bi-geo-alt"></i> Create New (Station wählen)</a></li>
-                        <li><a class="dropdown-item" href="#" onclick="BP.sendCartToOrderDirect()"><i class="bi bi-lightning"></i> Create New (Direkt)</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                    </ul>
-                </div>
             </div>
         </div>
     </div>
