@@ -3611,38 +3611,15 @@
                 await fetchBatchPrices(typeIds);
             }
 
-            // Fetch build-steps for each item to enable inline sub-material display
-            // (needed for saved orders loaded from localStorage where _buildStepsData is not persisted)
-            // Wichtig: runs/me/te uebergeben damit Sub-Material-Mengen korrekt sind (Bugfix: ohne = runs=1)
-            for (var _bsi = 0; _bsi < order.items.length; _bsi++) {
-                var _bsItem = order.items[_bsi];
-                if (!_bsItem.blueprint_type_id) continue;
-                try {
-                    var _bsRuns = _bsItem.runs || 1;
-                    var _bsMe = _bsItem.me != null ? _bsItem.me : 10;
-                    var _bsTe = _bsItem.te != null ? _bsItem.te : 20;
-                    var _bsResp = await fetch(
-                        "/api/blueprints/" + _bsItem.blueprint_type_id + "/build-steps?runs=" + _bsRuns + "&me=" + _bsMe + "&te=" + _bsTe,
-                        { credentials: "include" }
-                    );
-                    if (_bsResp.ok) {
-                        var _bsData = await _bsResp.json();
-                        _bsItem._buildStepsData = _bsData;
-                    }
-                } catch (_bsErr) {
-                    console.warn("[BP] Build-steps fetch failed for", _bsItem.blueprint_type_id, _bsErr.message);
-                }
-            }
-            // Recalc each item's build/buy totals using frontend decomposition logic
-            if (order && order.items) {
-                for (var _rci3 = 0; _rci3 < order.items.length; _rci3++) {
-                    recalcOrderItem(order, _rci3);
-                }
-            }
-            // Fetch prices for sub-material type IDs so inline lists show prices
-            if (order) {
-                await _fetchSubMaterialPrices(order);
-            }
+            // Full refresh: fetch build-cost (materials + build_time) + build-steps + recalc + sub-material prices
+            // from the backend. This replaces stale localStorage data (item.materials, item.build_cost,
+            // item.build_time_seconds) with fresh data reflecting current runs/ME/TE.
+            // _fetchBuildCostsForOrder() internally calls:
+            //   POST /api/blueprints/build-cost  → fresh item.materials + item.build_cost + build_time_seconds
+            //   GET  /api/blueprints/{id}/build-steps → fresh _buildStepsData
+            //   recalcOrderItem() for each item
+            //   _fetchSubMaterialPrices() for sub-material price data
+            await _fetchBuildCostsForOrder(order);
         }
 
         renderOrders();
@@ -4626,6 +4603,25 @@
         if (!order || !order.items || order.items.length === 0) {
             container.style.display = "none";
             return;
+        }
+
+        // Debug: Trace material quantities
+        console.log("[BP-Agg] renderOrderAggregatedMaterials START — order.items:", order.items.length);
+        for (var _dbgi = 0; _dbgi < order.items.length; _dbgi++) {
+            var _dbgItem = order.items[_dbgi];
+            console.log("[BP-Agg] Item " + _dbgi + ":", _dbgItem.product_name, "runs=" + _dbgItem.runs,
+                "materials.length=" + (_dbgItem.materials ? _dbgItem.materials.length : 0),
+                "buildSteps=" + (_dbgItem._buildStepsData ? "loaded" : "missing"));
+            if (_dbgItem.materials) {
+                for (var _dbgm = 0; _dbgm < _dbgItem.materials.length; _dbgm++) {
+                    var _dbgMat = _dbgItem.materials[_dbgm];
+                    console.log("[BP-Agg]   Mat " + _dbgm + ":", _dbgMat.material_name,
+                        "type_id=" + _dbgMat.material_type_id,
+                        "qty=" + _dbgMat.total_quantity,
+                        "decision=" + _dbgMat.decision,
+                        "buildable=" + _dbgMat.is_buildable);
+                }
+            }
         }
 
         // Aggregate materials by material_type_id
