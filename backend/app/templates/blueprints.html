@@ -1132,7 +1132,10 @@
                 <div class="row g-2 mb-2">
                     <div class="col-6">
                         <label class="form-label small text-secondary">Cost Index</label>
-                        <input type="text" class="form-control form-control-sm" id="bpCampaignCostIndex" readonly disabled>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control form-control-sm" id="bpCampaignCostIndex" step="0.001" min="0" max="1" value="0.01" onchange="BP.onCampaignCostIndexChange()">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="BP.showInventionStationSelector()" title="Select station to look up cost index"><i class="bi bi-search"></i></button>
+                        </div>
                     </div>
                     <div class="col-6">
                         <label class="form-label small text-secondary">Total Cost / Job</label>
@@ -1318,12 +1321,34 @@
                     </select>
                 </div>
                 <div class="col-md-6">
-                    <label class="form-label mb-0 text-secondary">Rigs</label>
-                    <select class="form-select form-select-sm" id="bpCfgRigs">
-                        <option value="none">None</option>
-                        <option value="t1">T1 Manufacturing Rig</option>
-                        <option value="t2">T2 Manufacturing Rig</option>
-                    </select>
+                    <label class="form-label mb-0 text-secondary">Rigs (bis zu 3)</label>
+                    <div class="d-flex gap-1">
+                        <select class="form-select form-select-sm" id="bpCfgRig1">
+                            <option value="none">— No Rig —</option>
+                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
+                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
+                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                        </select>
+                        <select class="form-select form-select-sm" id="bpCfgRig2">
+                            <option value="none">— No Rig —</option>
+                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
+                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
+                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                        </select>
+                        <select class="form-select form-select-sm" id="bpCfgRig3">
+                            <option value="none">— No Rig —</option>
+                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
+                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
+                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                        </select>
+                    </div>
+                    <div style="font-size:0.62rem;color:var(--t-text-dim);margin-top:2px;line-height:1.3;">
+                        <span style="color:#7c8faa;">T1/T2 Manuf.</span> = Fertigungsrigs (Material/Zeit-Reduktion)<br>
+                        <span style="color:#7c8faa;">T1/T2 React.</span> = Reaktionsrigs (Reaktionskosten-Reduktion)
+                    </div>
                 </div>
                 <div class="col-md-8">
                     <label class="form-label mb-0 text-secondary">Station / Structure</label>
@@ -1534,12 +1559,34 @@
                     </select>
                 </div>
                 <div class="mb-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">Rigs</label>
-                    <select class="form-select form-select-sm" id="bpSelRigs">
-                        <option value="none">None</option>
-                        <option value="t1">T1 Manufacturing Rig</option>
-                        <option value="t2">T2 Manufacturing Rig</option>
-                    </select>
+                    <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">Rigs (up to 3)</label>
+                    <div class="d-flex gap-1">
+                        <select class="form-select form-select-sm" id="bpSelRig1">
+                            <option value="none">— No Rig —</option>
+                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
+                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
+                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                        </select>
+                        <select class="form-select form-select-sm" id="bpSelRig2">
+                            <option value="none">— No Rig —</option>
+                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
+                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
+                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                        </select>
+                        <select class="form-select form-select-sm" id="bpSelRig3">
+                            <option value="none">— No Rig —</option>
+                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
+                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
+                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                        </select>
+                    </div>
+                    <div style="font-size:0.62rem;color:var(--t-text-dim);margin-top:4px;line-height:1.3;">
+                        <span style="color:#7c8faa;">T1/T2 Manuf.</span> = Fertigungsrigs (Material/Zeit-Reduktion)<br>
+                        <span style="color:#7c8faa;">T1/T2 React.</span> = Reaktionsrigs (Reaktionskosten-Reduktion)
+                    </div>
                 </div>
                 <div class="mb-2">
                     <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">System Cost Index</label>

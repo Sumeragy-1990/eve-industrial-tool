@@ -2032,6 +2032,23 @@
                 ' <span class="text-secondary">→ </span><span class="text-success fw-bold">' + formatIsk(jitaSellPrice) + '</span></span>' +
                 '</div>';
         }
+        // ── Product Output (unter der Gewinn-Schätzung) ──
+        var _prodOutputQty = data.product_quantity_per_run || 1;
+        var _prodTotalQty = _prodOutputQty * _runs;
+        var _prodSellPrice = jitaSellPrice; // already fetched above
+        var _prodName = data.product_name || data.material_name || "—";
+        var _prodGroup = data.group_name || "";
+        html += '<div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:4px; padding-top:4px;">' +
+            '<div class="text-secondary small mb-1"><i class="bi bi-box-seam me-1"></i>Produkt Output</div>' +
+            '<div style="display:grid; grid-template-columns:1fr auto auto; gap:4px 8px; font-size:0.72rem;">' +
+            '<span class="text-secondary">Name</span>' +
+            '<span class="text-secondary" style="text-align:right">Qty</span>' +
+            '<span class="text-secondary" style="text-align:right">Wert</span>' +
+            '<span>' + escHtml(_prodName) + '</span>' +
+            '<span style="text-align:right;font-weight:600;">' + formatNumber(_prodTotalQty) + 'x</span>' +
+            '<span style="text-align:right;font-weight:600;">' + (_prodSellPrice != null ? formatIsk(_prodSellPrice) : '-') + '</span>' +
+            (_prodGroup ? '<span class="text-secondary" style="grid-column:1;">' + escHtml(_prodGroup) + '</span>' : '') +
+            '</div></div>';
         html += '</div>';
 
         document.getElementById("bpMaterialsList").innerHTML = html;
@@ -2664,6 +2681,11 @@
         }
 
         container.innerHTML = html;
+
+        // Auto-fetch skills if a character is already selected
+        if (_inventionCharacterId && (!_inventionCharSkills || Object.keys(_inventionCharSkills).length === 0)) {
+            onInventionCharacterChange();
+        }
     }
 
     // ── Legacy invention functions (redirect to standalone) ──
@@ -2737,9 +2759,10 @@
             for (var si = 0; si < data.skills.length; si++) {
                 var tid = data.skills[si].skill_type_id;
                 var level = _inventionCharSkills[tid] || 0;
-                if (tid >= 23121 && tid <= 23133) {  // Invention-specific skills
+                // All invention-specific skills (datacore skills) fall in range and affect probability
+                if (tid >= 23121 && tid <= 23133) {
                     skillMod *= (1 + level * 0.02);
-                    if (tid >= 23122) {  // Datacore skills only (not encryption)
+                    if (tid >= 23122) {  // Datacore skills only (not encryption 23121)
                         maxDcLevel = Math.max(maxDcLevel, level);
                     }
                 }
@@ -3019,6 +3042,69 @@
         bsModal.show();
     }
 
+    /** When user edits cost index in campaign modal, recalc install fee */
+    function onCampaignCostIndexChange() {
+        var ciEl = document.getElementById("bpCampaignCostIndex");
+        if (!ciEl) return;
+        var ci = parseFloat(ciEl.value);
+        if (isNaN(ci) || ci < 0) ci = 0.01;
+        if (ci > 1) ci = 1;
+        _inventionCostIndex = ci;
+
+        if (!_inventionData || !_inventionData.has_invention) return;
+        var data = _inventionData;
+        var matsCost = 0;
+        if (data.materials) {
+            for (var j = 0; j < data.materials.length; j++) {
+                if (data.materials[j].total_cost) matsCost += data.materials[j].total_cost;
+            }
+        }
+        var decCost = 0;
+        if (_inventionDecryptor && data.decryptors) {
+            for (var k = 0; k < data.decryptors.length; k++) {
+                if (data.decryptors[k].type_id === _inventionDecryptor) {
+                    decCost = data.decryptors[k].price || 0;
+                    break;
+                }
+            }
+        }
+        var installFee = 250000 * (1 + ci * 100);
+        var totalPerJob = matsCost + decCost + installFee;
+
+        var groupName = (data.blueprint.group_name || "").toLowerCase();
+        var baseProb = 0.20;
+        if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
+        else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
+        else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
+        else if (groupName.indexOf("capital") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+
+        var skillMod = 1.0;
+        if (data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
+            for (var si = 0; si < data.skills.length; si++) {
+                var tid = data.skills[si].skill_type_id;
+                var level = _inventionCharSkills[tid] || 0;
+                if (tid >= 23121 && tid <= 23133) {
+                    skillMod *= (1 + level * 0.02);
+                }
+            }
+        }
+        var decProb = 1.0;
+        if (_inventionDecryptor && data.decryptors) {
+            for (var di = 0; di < data.decryptors.length; di++) {
+                if (data.decryptors[di].type_id === _inventionDecryptor) {
+                    decProb = data.decryptors[di].prob;
+                    break;
+                }
+            }
+        }
+        var probability = Math.min(baseProb * skillMod * decProb, 0.95);
+        var expectedCost = totalPerJob / Math.max(probability, 0.01);
+
+        document.getElementById("bpCampaignCostPerJob").value = formatNumber(totalPerJob) + " ISK";
+        document.getElementById("bpCampaignProb").value = (probability * 100).toFixed(1) + "%";
+        document.getElementById("bpCampaignExpectedCost").value = formatNumber(expectedCost) + " ISK";
+    }
+
     async function createCampaign() {
         var name = document.getElementById("bpCampaignName").value.trim();
         if (!name) { alert("Campaign name is required."); return; }
@@ -3148,12 +3234,35 @@
         }
     }
 
+    var _campaignMaterials = [];
+    var _campaignOverridePrices = {};
+
     async function selectCampaign(campaignId) {
         _selectedCampaignId = campaignId;
         renderCampaignList();
 
         try {
             var data = await apiGet("/api/invention-campaigns/" + campaignId);
+            // Try to fetch materials from invention-options
+            if (data.t1_blueprint_type_id) {
+                try {
+                    var invData = await apiGet("/api/blueprints/" + data.t1_blueprint_type_id + "/invention-options");
+                    _campaignMaterials = (invData && invData.materials) ? invData.materials : [];
+                } catch (e2) {
+                    _campaignMaterials = [];
+                }
+            }
+            // Also merge in custom_price from _campaignOverridePrices
+            if (_campaignOverridePrices && Object.keys(_campaignOverridePrices).length > 0) {
+                for (var mi = 0; mi < _campaignMaterials.length; mi++) {
+                    var tid = _campaignMaterials[mi].material_type_id;
+                    if (_campaignOverridePrices[tid] != null) {
+                        _campaignMaterials[mi].custom_price = _campaignOverridePrices[tid];
+                        _campaignMaterials[mi].unit_price = _campaignOverridePrices[tid];
+                        _campaignMaterials[mi].total_cost = _campaignOverridePrices[tid] * _campaignMaterials[mi].quantity;
+                    }
+                }
+            }
             renderCampaignDetail(data);
         } catch (e) {
             console.warn("Failed to load campaign detail:", e);
@@ -3182,6 +3291,46 @@
             html += '<div class="col-12"><span class="text-muted">Decryptor:</span> <span class="text-info">' + escHtml(data.decryptor_name) + '</span></div>';
         }
         html += '</div>';
+
+        // ── Materials from invention-options (loaded in selectCampaign) ──
+        if (_campaignMaterials && _campaignMaterials.length > 0) {
+            html += '<hr class="my-2" style="border-color:rgba(255,255,255,0.1);">';
+            html += '<div class="fw-bold mb-1" style="font-size:0.75rem;">Required Materials (per attempt)</div>';
+            html += '<div class="table-responsive"><table class="table table-dark table-sm mb-0" style="font-size:0.65rem;">';
+            html += '<thead><tr><th>Material</th><th class="text-end">Qty</th><th class="text-end">Buy</th><th class="text-end">Sell</th><th class="text-end">Custom</th><th class="text-end">Total</th></tr></thead><tbody>';
+            var matsTotal = 0;
+            for (var mi = 0; mi < _campaignMaterials.length; mi++) {
+                var m = _campaignMaterials[mi];
+                var buyStr = m.buy_price ? formatNumber(m.buy_price) + " ISK" : '<span class="text-muted">—</span>';
+                var sellStr = m.sell_price ? formatNumber(m.sell_price) + " ISK" : '<span class="text-muted">—</span>';
+                var customVal = _campaignOverridePrices && _campaignOverridePrices[m.material_type_id] != null ? _campaignOverridePrices[m.material_type_id] : m.custom_price;
+                var customStr = customVal != null ? formatNumber(customVal) + " ISK" : '<span class="text-muted">—</span>';
+                var totalVal = customVal != null ? customVal * m.quantity : (m.total_cost || 0);
+                var totalStr = totalVal ? formatNumber(totalVal) + " ISK" : '<span class="text-muted">—</span>';
+                if (totalVal) matsTotal += totalVal;
+                html += '<tr>';
+                html += '<td>' + escHtml(m.name) + '</td>';
+                html += '<td class="text-end">×' + m.quantity + '</td>';
+                html += '<td class="text-end text-success">' + buyStr + '</td>';
+                html += '<td class="text-end text-warning">' + sellStr + '</td>';
+                html += '<td class="text-end text-info">' + customStr + '</td>';
+                html += '<td class="text-end fw-bold">' + totalStr + '</td>';
+                html += '</tr>';
+            }
+            html += '<tr class="table-active"><td colspan="5" class="text-end fw-bold">Materials Subtotal</td><td class="text-end fw-bold text-info">' + formatNumber(matsTotal) + ' ISK</td></tr>';
+            html += '</tbody></table></div>';
+
+            // Paste field for multibuy price overrides
+            html += '<div class="mt-2" style="border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;">';
+            html += '<div style="font-size:0.7rem;color:#ffc107;margin-bottom:4px;display:flex;align-items:center;gap:4px;">';
+            html += '<i class="bi bi-exclamation-triangle-fill" style="font-size:0.6rem;"></i> Price Override: Paste Multibuy (item_name⇥price)';
+            html += '</div>';
+            html += '<div style="display:flex;gap:4px;">';
+            html += '<textarea id="bpCampaignMultibuyInput" rows="2" style="flex:1;font-size:0.65rem;background:#0d1620;color:#e0e0e0;border:1px solid #2a3a4a;border-radius:4px;padding:4px;" placeholder="e.g.&#10;Datacore - Mechanical Engineering	50000&#10;Datacore - Electronic Engineering	45000"></textarea>';
+            html += '<button class="btn btn-sm btn-warning align-self-end" style="font-size:0.65rem;padding:2px 8px;" onclick="BP.pasteCampaignMultibuy()"><i class="bi bi-clipboard"></i> Apply</button>';
+            html += '</div>';
+            html += '</div>';
+        }
 
         if (data.summary) {
             html += '<hr class="my-2" style="border-color:rgba(255,255,255,0.1);">';
@@ -3222,6 +3371,82 @@
         html += '</div>';
 
         body.innerHTML = html;
+    }
+
+    function pasteCampaignMultibuy() {
+        var textarea = document.getElementById("bpCampaignMultibuyInput");
+        if (!textarea) return;
+        var raw = textarea.value.trim();
+        if (!raw) {
+            alert("Nothing to paste.");
+            return;
+        }
+
+        if (!_campaignMaterials || _campaignMaterials.length === 0) {
+            alert("No campaign materials loaded to match against.");
+            return;
+        }
+
+        // Build name → type_id lookup from campaign materials
+        var nameToId = {};
+        for (var mi = 0; mi < _campaignMaterials.length; mi++) {
+            var m = _campaignMaterials[mi];
+            if (m.name) {
+                nameToId[m.name.toLowerCase()] = m.material_type_id;
+            }
+        }
+
+        // Parse lines: "item_name<TAB>price" or "item_name<SPACE>price"
+        var lines = raw.split("\n");
+        var parsedCount = 0;
+        var matchCount = 0;
+
+        for (var li = 0; li < lines.length; li++) {
+            var line = lines[li].trim();
+            if (!line) continue;
+
+            // Try tab first, then space-separated
+            var sep = line.indexOf("\t");
+            if (sep === -1) {
+                // Fallback: try splitting by last space (price is last token)
+                var spaceIdx = line.lastIndexOf(" ");
+                if (spaceIdx > 0) {
+                    sep = spaceIdx;
+                }
+            }
+            if (sep === -1 || sep <= 0) continue;
+
+            var itemName = line.substring(0, sep).trim();
+            var priceStr = line.substring(sep + 1).trim();
+            if (!itemName || !priceStr) continue;
+            parsedCount++;
+
+            var typeId = nameToId[itemName.toLowerCase()];
+            if (typeId != null) {
+                // Parse price using same helpers as pasteMultibuyPrices
+                var price = NaN;
+                // Try direct parse
+                price = parseFloat(priceStr.replace(/[.,]\s*$/, '').replace(/\./g, '').replace(',', '.'));
+                if (isNaN(price)) {
+                    // Try EU format
+                    price = parseFloat(priceStr.replace(/\.(?=\d{3})/g, '').replace(',', '.'));
+                }
+                if (isNaN(price)) continue;
+
+                _campaignOverridePrices[typeId] = price;
+                matchCount++;
+            }
+        }
+
+        if (parsedCount === 0) {
+            alert("Could not parse any lines. Use format: item_name<TAB>price_per_unit");
+            return;
+        }
+
+        // Re-fetch and re-render with updated overrides
+        if (_selectedCampaignId) {
+            selectCampaign(_selectedCampaignId);
+        }
     }
 
     function closeCampaignDetail() {
@@ -3882,6 +4107,10 @@
                         oi => oi.blueprint_type_id === apiItem.blueprint_type_id
                     );
                     if (!orderItem) continue;
+                    // Preserve runs from API response (Bugfix: ensure runs survive async call)
+                    if (apiItem.runs != null) {
+                        orderItem.runs = apiItem.runs;
+                    }
                     // Look up BPC amortized cost for this product (Phase C7)
                     var bpcCost = bpcGetCost(orderItem.product_type_id);
                     var bpcAmortizedCost = 0;
@@ -4040,7 +4269,9 @@
         _inventionStationSelectorActive = true;
         var c = loadConfig();
         setSel("bpSelFacilityType", c.facility_type || "npc_station");
-        setSel("bpSelRigs", c.rigs || "none");
+        setSel("bpSelRig1", c.rig1 || "none");
+        setSel("bpSelRig2", c.rig2 || "none");
+        setSel("bpSelRig3", c.rig3 || "none");
         var sysNameEl = document.getElementById("bpSelSystemName");
         if (sysNameEl) sysNameEl.value = c.system_name || "";
         var idxResultEl = document.getElementById("bpSelIdxResult");
@@ -5208,7 +5439,8 @@
                     totalInstallCost += _installCost;
                     buildTotal += Math.round(_subTotal) + _installCost;
                 } else {
-                    buildTotal += m.total_cost || 0;
+                    // Recalculate from current effective prices instead of using stale backend total
+                    buildTotal += unitPrice * m.total_quantity;
                 }
                 buildQty += m.total_quantity;
             } else {
@@ -5776,9 +6008,9 @@
             // Persist cache
             savePriceCache();
 
-            // Re-render the overrides list and the order detail to reflect new prices
+            // Recalc from cache using the new price, then re-render
             renderPriceOverrides();
-            renderOrderDetail();
+            recalcOrderFromCache();
         } catch (e) {
             console.error("[BP] setPriceOverride error:", e);
             alert("Failed to save price override: " + e.message);
@@ -5832,10 +6064,10 @@
                 }
             }
 
-            // Persist and re-render
+            // Persist, recalc from cache, and re-render
             savePriceCache();
             renderPriceOverrides();
-            renderOrderDetail();
+            recalcOrderFromCache();
         } catch (e) {
             console.error("[BP] clearAllPriceOverrides error:", e);
             alert("Failed to clear overrides: " + e.message);
@@ -6141,7 +6373,7 @@
 
         savePriceCache();
         renderPriceOverrides();
-        renderOrderDetail();
+        recalcOrderFromCache();
 
         var msg = applied + " override" + (applied !== 1 ? "s" : "") + " applied.";
         if (errors.length > 0) {
@@ -6582,6 +6814,9 @@
             system_id: null,
             system_name: "",
             rigs: "none",
+            rig1: "none",
+            rig2: "none",
+            rig3: "none",
             tax_rate: 5.0,
             system_cost_index: null,
             price_source: "jita_sell",
@@ -6611,6 +6846,13 @@
             const raw = localStorage.getItem(BUILD_CONFIG_KEY);
             if (raw) {
                 _bpConfig = Object.assign(defaultConfig(), JSON.parse(raw));
+                // Migration: upgrade old single-rig config to 3-slot format
+                if ((!_bpConfig.rig1 || _bpConfig.rig1 === "none") && _bpConfig.rigs && _bpConfig.rigs !== "none") {
+                    _bpConfig.rig1 = _bpConfig.rigs;
+                }
+                if (!_bpConfig.rig1) _bpConfig.rig1 = "none";
+                if (!_bpConfig.rig2) _bpConfig.rig2 = "none";
+                if (!_bpConfig.rig3) _bpConfig.rig3 = "none";
                 return _bpConfig;
             }
         } catch (e) { /* corrupt */ }
@@ -6645,6 +6887,9 @@
                 system_name: "Jita",
                 system_id: 30000142,
                 rigs: "none",
+                rig1: "none",
+                rig2: "none",
+                rig3: "none",
                 tax_rate: 5.0,
                 system_cost_index: null,
             },
@@ -6655,6 +6900,9 @@
                 system_name: "Irjunen",
                 system_id: 30003078,
                 rigs: "t2",
+                rig1: "t2",
+                rig2: "none",
+                rig3: "none",
                 tax_rate: 2.5,
                 system_cost_index: null,
             },
@@ -6665,6 +6913,9 @@
                 system_name: "Perimeter",
                 system_id: 30000144,
                 rigs: "t2",
+                rig1: "t2",
+                rig2: "none",
+                rig3: "none",
                 tax_rate: 1.5,
                 system_cost_index: null,
             },
@@ -6771,6 +7022,9 @@
         presets[name] = {
             facility_type: getElVal("bpCfgFacilityType") || "npc_station",
             rigs: getElVal("bpCfgRigs") || "none",
+            rig1: getElVal("bpCfgRig1") || "none",
+            rig2: getElVal("bpCfgRig2") || "none",
+            rig3: getElVal("bpCfgRig3") || "none",
             station_id: getElVal("bpCfgStation") ? parseInt(getElVal("bpCfgStation")) : null,
             station_name: (function(){
                 var sel = document.getElementById("bpCfgStation");
@@ -6821,6 +7075,9 @@
         c.system_id      = p.system_id      != null ? p.system_id : c.system_id;
         c.system_name    = p.system_name    || c.system_name;
         c.rigs           = p.rigs           || c.rigs;
+        c.rig1           = p.rig1           || "none";
+        c.rig2           = p.rig2           || "none";
+        c.rig3           = p.rig3           || "none";
         c.tax_rate       = p.tax_rate       != null ? p.tax_rate : c.tax_rate;
         c.system_cost_index = p.system_cost_index != null ? p.system_cost_index : c.system_cost_index;
         saveConfig();
@@ -6838,9 +7095,12 @@
         const facIcon = c.facility_type === "player_structure" ? "🏭" : "🏪";
         const facLabel = c.facility_type === "player_structure" ? "Player Structure" : "NPC Station";
 
-        // Rig label
-        const rigLabels = { none: "No Rig", t1: "T1 Manufacturing", t2: "T2 Manufacturing" };
-        const rigLabel = rigLabels[c.rigs] || c.rigs;
+        // Rig labels — show up to 3 rigs
+        const rigLabels = { none: "\u2014", t1: "T1 Manuf.", t2: "T2 Manuf.", t1_reaction: "T1 React.", t2_reaction: "T2 React." };
+        var _rigParts2 = [c.rig1, c.rig2, c.rig3].filter(function(r) { return r && r !== "none"; });
+        var rigLabel = _rigParts2.length > 0
+            ? _rigParts2.map(function(r) { return rigLabels[r] || r; }).join(" + ")
+            : "No Rigs";
 
         // Price source
         const priceLabel = c.price_source === "jita_buy" ? "Jita Buy" : "Jita Sell";
@@ -6877,7 +7137,8 @@
         var presets = loadStationPresets();
         var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
         for (var pk in presets) {
-            var isActive = (c.station_name === presets[pk].station_name && c.rigs === presets[pk].rigs);
+            var isActive = (c.station_name === presets[pk].station_name && c.rigs === presets[pk].rigs)
+                && (c.rig1 === presets[pk].rig1 && c.rig2 === presets[pk].rig2 && c.rig3 === presets[pk].rig3);
             presetOptions += '<option value="' + escHtml(pk) + '"' + (isActive ? ' selected' : '') + '>' + escHtml(pk) + '</option>';
         }
         var presetBar = '<div class="bp-config-bar-line" style="gap:0.5rem;">' +
@@ -7024,14 +7285,27 @@
 
         // Facility
         setSel("bpCfgFacilityType", c.facility_type || "npc_station");
-        setSel("bpCfgRigs", c.rigs || "none");
+        // Populate 3 rig slots
+        function _setRig(id, val) {
+            var el = document.getElementById(id);
+            if (el) el.value = val || "none";
+        }
+        _setRig("bpCfgRig1", c.rig1);
+        _setRig("bpCfgRig2", c.rig2);
+        _setRig("bpCfgRig3", c.rig3);
         // Disable rigs if NPC station (Issue 6)
+        function _disableRigs(disabled) {
+            for (var ri = 1; ri <= 3; ri++) {
+                var el = document.getElementById("bpCfgRig" + ri);
+                if (el) {
+                    el.disabled = disabled;
+                    if (disabled) el.value = "none";
+                }
+            }
+        }
         var _facTypeEl = document.getElementById("bpCfgFacilityType");
-        var _rigsEl = document.getElementById("bpCfgRigs");
-        if (_facTypeEl && _rigsEl) {
-            var _isNpc = _facTypeEl.value === "npc_station";
-            _rigsEl.disabled = _isNpc;
-            if (_isNpc) _rigsEl.value = "none";
+        if (_facTypeEl) {
+            _disableRigs(_facTypeEl.value === "npc_station");
         }
         var taxEl = document.getElementById("bpCfgTax");
         var taxValEl = document.getElementById("bpCfgTaxVal");
@@ -7108,7 +7382,12 @@
     function applyConfigPanel() {
         var c = loadConfig();
         c.facility_type = getSel("bpCfgFacilityType") || "npc_station";
-        c.rigs = getSel("bpCfgRigs") || "none";
+        c.rig1 = getSel("bpCfgRig1") || "none";
+        c.rig2 = getSel("bpCfgRig2") || "none";
+        c.rig3 = getSel("bpCfgRig3") || "none";
+        // Build comma-separated rigs string for backend compatibility
+        var _rigParts = [c.rig1, c.rig2, c.rig3].filter(function(r) { return r && r !== "none"; });
+        c.rigs = _rigParts.length > 0 ? _rigParts.join(",") : "none";
         c.tax_rate = parseFloat(getEl("bpCfgTax") || 5.0);
         c.system_name = getElVal("bpCfgSystemName") || "";
         c.character_name = getElVal("bpCfgCharName") || "Nadja";
@@ -7308,12 +7587,16 @@
 
         // Facility Type → disable Rigs when NPC station (Issue 6)
         var facTypeEl = document.getElementById("bpCfgFacilityType");
-        var rigsEl = document.getElementById("bpCfgRigs");
-        if (facTypeEl && rigsEl) {
+        if (facTypeEl) {
             function syncRigState() {
                 var isNpc = facTypeEl.value === "npc_station";
-                rigsEl.disabled = isNpc;
-                if (isNpc) rigsEl.value = "none";
+                for (var ri = 1; ri <= 3; ri++) {
+                    var el = document.getElementById("bpCfgRig" + ri);
+                    if (el) {
+                        el.disabled = isNpc;
+                        if (isNpc) el.value = "none";
+                    }
+                }
             }
             facTypeEl.addEventListener("change", syncRigState);
             syncRigState(); // apply on init
@@ -7404,6 +7687,10 @@
                         return oi.blueprint_type_id === apiItem.blueprint_type_id;
                     });
                     if (!orderItem) continue;
+                    // Preserve runs from API response (Bugfix: ensure runs survive async call)
+                    if (apiItem.runs != null) {
+                        orderItem.runs = apiItem.runs;
+                    }
                     // Look up BPC amortized cost for this product (Phase C7)
                     var bpcCost = bpcGetCost(orderItem.product_type_id);
                     var bpcAmortizedCost = 0;
@@ -8735,6 +9022,7 @@
         _bstToggle: _bstToggle,
         toggleOrderBuildSteps: toggleOrderBuildSteps,
         openCreateCampaignModal: openCreateCampaignModal,
+        onCampaignCostIndexChange: onCampaignCostIndexChange,
         loadCampaigns: loadCampaigns,
         closeCampaignDetail: closeCampaignDetail,
         createCampaign: createCampaign,
@@ -8743,6 +9031,7 @@
         saveCampaignToStock: saveCampaignToStock,
         updateCampaignStatus: updateCampaignStatus,
         deleteCampaign: deleteCampaign,
+        pasteCampaignMultibuy: pasteCampaignMultibuy,
     };
 
     // ── Start ──────────────────────────────────────────────────────

@@ -1546,18 +1546,17 @@ async def calculate_build_cost(
     all_material_ids = set()
     item_plans = []
 
-    # Manufacturing rigs (material bonus)
-    _MANU_RIG_MAT = {"none": 0.0, "t1": 0.02, "t2": 0.024}
-    # Reaction rigs (material bonus) — refineries use different rigs: t1_reaction (1%), t2_reaction (2%)
-    _REACT_RIG_MAT = {"none": 0.0, "t1_reaction": 0.01, "t2_reaction": 0.02}
+    # Unified rig table (manufacturing + reaction) — stations can have up to 3 rigs
+    _RIG_BONUS = {"none": 0.0, "t1": 0.02, "t2": 0.024, "t1_reaction": 0.01, "t2_reaction": 0.02}
     _SEC_MULT = {"highsec": 1.0, "lowsec": 1.9, "null": 2.1, "wh": 2.1}
-    # Choose rig table based on facility_type
     # NPC stations have no rigs — force to "none" (Issue 6)
     if facility.facility_type == "npc_station":
         facility.rigs = "none"
-    _is_refinery = facility.facility_type == "refinery"
-    _rig_table = _REACT_RIG_MAT if _is_refinery else _MANU_RIG_MAT
-    rig_mat_bonus = _rig_table.get(facility.rigs, 0.0) * _SEC_MULT.get(facility.security_class, 1.0)
+    # Parse comma-separated rig list (up to 3 slots) and sum bonuses
+    rig_names = facility.rigs.split(",") if facility.rigs and "," in facility.rigs else [facility.rigs]
+    rig_mat_bonus = sum(_RIG_BONUS.get(r.strip(), 0.0) for r in rig_names) * _SEC_MULT.get(facility.security_class, 1.0)
+    # Cap at reasonable max (3 rigs × T2 manufacturing = 7.2%)
+    rig_mat_bonus = min(rig_mat_bonus, 0.10)
 
     for item in body.cart_items:
         mat_sql = text("""
