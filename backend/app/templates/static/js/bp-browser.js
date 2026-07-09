@@ -4497,10 +4497,11 @@
             html += '<span class="bp-order-prod-name" title="' + escHtml(item.product_name) + '">' +
                 escHtml(item.product_name) + '</span>';
 
-            // Runs edit (inline input like ME/PE)
+            // Runs edit (inline input like ME/PE) — oninput saves immediately, onchange triggers API refresh
             html += '<span class="bp-order-prod-runs" title="Anzahl Runs">' +
                 'R<input class="bp-order-runs-input" type="number" min="1" max="1000" value="' + (item.runs || 1) + '"' +
                 ' onclick="event.stopPropagation()"' +
+                ' oninput="BP.updateOrderItemRunsImmediate(' + _activeOrderIndex + ',' + i + ',this.value)"' +
                 ' onchange="event.stopPropagation();BP.updateOrderItemRuns(' + _activeOrderIndex + ',' + i + ',this.value)"' +
                 '></span>';
 
@@ -4508,6 +4509,7 @@
             html += '<span class="bp-order-prod-me" title="Material Efficiency">' +
                 'ME<input class="bp-order-me-input" type="number" min="0" max="10" value="' + (item.me != null ? item.me : 10) + '"' +
                 ' onclick="event.stopPropagation()"' +
+                ' oninput="BP.updateOrderItemMEImmediate(' + _activeOrderIndex + ',' + i + ',this.value)"' +
                 ' onchange="event.stopPropagation();BP.updateOrderItemME(' + _activeOrderIndex + ',' + i + ',this.value)"' +
                 '></span>';
 
@@ -4515,6 +4517,7 @@
             html += '<span class="bp-order-prod-me" title="Production Efficiency (Time)">' +
                 'PE<input class="bp-order-me-input" type="number" min="0" max="20" value="' + (item.te != null ? item.te : 20) + '"' +
                 ' onclick="event.stopPropagation()"' +
+                ' oninput="BP.updateOrderItemTEImmediate(' + _activeOrderIndex + ',' + i + ',this.value)"' +
                 ' onchange="event.stopPropagation();BP.updateOrderItemTE(' + _activeOrderIndex + ',' + i + ',this.value)"' +
                 '></span>';
 
@@ -5805,6 +5808,14 @@
         saveOrders();
         renderOrderDetail();
     }
+    /** Immediate save on input (no API call) — keeps in-memory + localStorage in sync before any re-render */
+    function updateOrderItemRunsImmediate(orderIdx, itemIdx, value) {
+        var order = _productionOrders[orderIdx];
+        if (!order || !order.items[itemIdx]) return;
+        var newRuns = Math.max(1, Math.min(1000, parseInt(value) || 1));
+        order.items[itemIdx].runs = newRuns;
+        saveOrders();
+    }
     function updateOrderItemRuns(orderIdx, itemIdx, value) {
         var order = _productionOrders[orderIdx];
         if (!order || !order.items[itemIdx]) return;
@@ -5816,6 +5827,19 @@
         _fetchBuildCostsForOrder(order).then(function() {
             renderOrderDetail();
         });
+    }
+    /** Immediate save on input (no API call) */
+    function updateOrderItemMEImmediate(orderIdx, itemIdx, value) {
+        var order = _productionOrders[orderIdx];
+        if (!order || !order.items[itemIdx]) return;
+        order.items[itemIdx].me = Math.max(0, Math.min(10, parseInt(value) || 0));
+        saveOrders();
+    }
+    function updateOrderItemTEImmediate(orderIdx, itemIdx, value) {
+        var order = _productionOrders[orderIdx];
+        if (!order || !order.items[itemIdx]) return;
+        order.items[itemIdx].te = Math.max(0, Math.min(20, parseInt(value) || 0));
+        saveOrders();
     }
 
     /** Format seconds into e.g. "2d 3h 15m" */
@@ -8936,8 +8960,12 @@
         toggleOrderItem: toggleOrderItem,
         toggleOrderMaterial: toggleOrderMaterial,
         toggleMaterialPriceMode: toggleMaterialPriceMode,
+        updateOrderItemRuns: updateOrderItemRuns,
+        updateOrderItemRunsImmediate: updateOrderItemRunsImmediate,
         updateOrderItemME: updateOrderItemME,
+        updateOrderItemMEImmediate: updateOrderItemMEImmediate,
         updateOrderItemTE: updateOrderItemTE,
+        updateOrderItemTEImmediate: updateOrderItemTEImmediate,
         toggleMatSubStep: toggleMatSubStep,
         toggleOrderMatSubStep: toggleOrderMatSubStep,
         toggleOrderMatPriceMode: toggleOrderMatPriceMode,
