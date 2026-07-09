@@ -4365,12 +4365,57 @@
         });
     }
 
-    /** Called when facility type changes in config modal — show/hide rigs */
+    /** Called when facility type changes in config modal — show/hide rigs + load from DB */
     function onCfgFacilityChange() {
         var facEl = document.getElementById("bpCfgFacilityType");
         var rigsCol = document.getElementById("bpCfgRigsCol");
         if (!facEl || !rigsCol) return;
-        rigsCol.style.display = (facEl.value === "npc_station") ? "none" : "block";
+        var isRigFacility = facEl.value !== "npc_station";
+        rigsCol.style.display = isRigFacility ? "block" : "none";
+        if (isRigFacility) {
+            var sizeMap = { raitaru: "M", sotyo: "L", azbel: "XL" };
+            _populateRigSelects(sizeMap[facEl.value] || "M");
+        }
+    }
+
+    /** Fetch rigs from DB by structure size and populate the 3 rig selects */
+    function _populateRigSelects(size) {
+        var hint = document.getElementById("bpCfgRigHint");
+        if (hint) hint.innerHTML = '<span class="text-info">Loading rigs...</span>';
+        fetch("/api/rigs?size=" + size, { credentials: "include" })
+        .then(function(r) { return r.json(); })
+        .then(function(rigs) {
+            if (!rigs || rigs.length === 0) {
+                if (hint) hint.innerHTML = '<span class="text-warning">No rigs found for size ' + size + '</span>';
+                return;
+            }
+            for (var si = 1; si <= 3; si++) {
+                var sel = document.getElementById("bpCfgRig" + si);
+                if (!sel) continue;
+                var val = sel.value; // preserve selection
+                sel.innerHTML = '<option value="none">\u2014 No Rig \u2014</option>';
+                for (var ri = 0; ri < rigs.length; ri++) {
+                    var r = rigs[ri];
+                    var opt = document.createElement("option");
+                    opt.value = r.id;
+                    var bonusParts = [];
+                    if (r.material_bonus > 0) bonusParts.push((r.material_bonus * 100).toFixed(1) + "% Mat");
+                    if (r.time_bonus > 0) bonusParts.push((r.time_bonus * 100).toFixed(1) + "% Zeit");
+                    if (r.research_bonus > 0) bonusParts.push((r.research_bonus * 100).toFixed(1) + "% Forschung");
+                    opt.textContent = r.name;
+                    opt.title = r.name + " (" + bonusParts.join(", ") + ")";
+                    if (r.id === val) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+            }
+            if (hint) {
+                var count = rigs.length;
+                hint.innerHTML = count + ' Rigs geladen f\u00fcr Gr\u00f6\u00dfe ' + size + '. <span class="text-warning">Nur bei Engineering Complexen</span>';
+            }
+        })
+        .catch(function() {
+            if (hint) hint.innerHTML = '<span class="text-danger">Error loading rigs.</span>';
+        });
     }
 
     /** Open station selector for the active order (or a specific order) */
@@ -7650,30 +7695,18 @@
         setSel("bpCfgImplSlot7", c.implant_slot7 || "");
         setSel("bpCfgImplSlot8", c.implant_slot8 || "");
 
-        // ── Facility ──
+        // ── Facility + Rigs ──
         setSel("bpCfgFacilityType", c.facility_type || "npc_station");
-        // Populate 3 rig slots
-        function _setRig(id, val) {
-            var el = document.getElementById(id);
-            if (el) el.value = val || "none";
-        }
-        _setRig("bpCfgRig1", c.rig1);
-        _setRig("bpCfgRig2", c.rig2);
-        _setRig("bpCfgRig3", c.rig3);
-        // Disable rigs if NPC station (Issue 6)
-        function _disableRigs(disabled) {
-            for (var ri = 1; ri <= 3; ri++) {
-                var el = document.getElementById("bpCfgRig" + ri);
-                if (el) {
-                    el.disabled = disabled;
-                    if (disabled) el.value = "none";
-                }
+        // Load rigs dynamically and set saved values
+        onCfgFacilityChange();
+        // Rig values need to be set AFTER async load, so set them with a small delay
+        setTimeout(function() {
+            var rigIds = [c.rig1, c.rig2, c.rig3];
+            for (var ri = 0; ri < 3; ri++) {
+                var el = document.getElementById("bpCfgRig" + (ri + 1));
+                if (el && rigIds[ri]) el.value = rigIds[ri];
             }
-        }
-        var _facTypeEl = document.getElementById("bpCfgFacilityType");
-        if (_facTypeEl) {
-            _disableRigs(_facTypeEl.value === "npc_station");
-        }
+        }, 100);
         var taxEl = document.getElementById("bpCfgTax");
         var taxValEl = document.getElementById("bpCfgTaxVal");
         if (taxEl) { taxEl.value = c.tax_rate || 5.0; }

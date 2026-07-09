@@ -1554,20 +1554,26 @@ async def calculate_build_cost(
     item_plans = []
 
     # Unified rig table (manufacturing + reaction) — stations can have up to 3 rigs
-    _RIG_BONUS = {"none": 0.0, "t1": 0.02, "t2": 0.024,
-        "t1_small": 0.02, "t2_small": 0.024,
-        "t1_medium": 0.02, "t2_medium": 0.024,
-        "t1_large": 0.02, "t2_large": 0.024,
-        "t1_xl": 0.02, "t2_xl": 0.024,
-        "t1_component": 0.03, "t2_component": 0.036,
+    # Fallback static dict for backward compat; DB rigs take precedence
+    _RIG_FALLBACK = {"none": 0.0, "t1": 0.02, "t2": 0.024,
         "t1_reaction": 0.01, "t2_reaction": 0.02}
     _SEC_MULT = {"highsec": 1.0, "lowsec": 1.9, "null": 2.1, "wh": 2.1}
     # NPC stations have no rigs — force to "none" (Issue 6)
     if facility.facility_type == "npc_station":
         facility.rigs = "none"
-    # Parse comma-separated rig list (up to 3 slots) and sum bonuses
+    # Parse comma-separated rig list (up to 3 slots)
     rig_names = facility.rigs.split(",") if facility.rigs and "," in facility.rigs else [facility.rigs]
-    rig_mat_bonus = sum(_RIG_BONUS.get(r.strip(), 0.0) for r in rig_names) * _SEC_MULT.get(facility.security_class, 1.0)
+    # Look up rig bonuses from database, fall back to static dict
+    if rig_names and rig_names != ["none"]:
+        rig_query = text("SELECT rig_id, material_bonus, time_bonus FROM rigs WHERE rig_id IN :ids")
+        rig_rows = (await db.execute(rig_query, {"ids": tuple(rig_names)})).all()
+        rig_db = {r[0]: r[1] for r in rig_rows}
+    else:
+        rig_db = {}
+    rig_mat_bonus = sum(
+        rig_db.get(r.strip(), _RIG_FALLBACK.get(r.strip(), 0.0))
+        for r in rig_names
+    ) * _SEC_MULT.get(facility.security_class, 1.0)
     # Cap at reasonable max (3 rigs × T2 manufacturing = 7.2%)
     rig_mat_bonus = min(rig_mat_bonus, 0.10)
 
