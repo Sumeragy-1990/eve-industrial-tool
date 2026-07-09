@@ -5796,17 +5796,21 @@
         var order = _productionOrders[orderIdx];
         if (!order || !order.items[itemIdx]) return;
         order.items[itemIdx].me = Math.max(0, Math.min(10, parseInt(value) || 0));
-        // Recalc costs since ME affects installation cost (Feature 5)
-        recalcOrderItem(order, itemIdx);
+        // ME affects material quantities — need to re-fetch build costs from backend
         saveOrders();
-        renderOrderDetail();
+        _fetchBuildCostsForOrder(order).then(function() {
+            renderOrderDetail();
+        });
     }
     function updateOrderItemTE(orderIdx, itemIdx, value) {
         var order = _productionOrders[orderIdx];
         if (!order || !order.items[itemIdx]) return;
         order.items[itemIdx].te = Math.max(0, Math.min(20, parseInt(value) || 0));
+        // TE affects build time in cost calculation — re-fetch to keep costs accurate
         saveOrders();
-        renderOrderDetail();
+        _fetchBuildCostsForOrder(order).then(function() {
+            renderOrderDetail();
+        });
     }
     /** Immediate save on input (no API call) — keeps in-memory + localStorage in sync before any re-render */
     function updateOrderItemRunsImmediate(orderIdx, itemIdx, value) {
