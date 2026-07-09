@@ -13,7 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, assets, sde, corp, restock, industry, build_calculator, cost_indices, market, blueprints, invention, character_restock, character_skills, selling, admin, location_aliases, corp_warehouses, sync_all, user_prices, bpc_costs, bpc_stock_thresholds, invention_campaigns
+from app.routers import auth, assets, sde, corp, restock, industry, build_calculator, cost_indices, market, blueprints, invention, character_restock, character_skills, selling, admin, location_aliases, corp_warehouses, sync_all, user_prices, bpc_costs, bpc_stock_thresholds, invention_campaigns, rigs as rigs_router
 from app.services.sync_orchestrator import start_auto_sync
 
 # ── Logging ────────────────────────────────────────────────────
@@ -130,6 +130,7 @@ app.include_router(bpc_costs.router)
 app.include_router(bpc_stock_thresholds.router)
 app.include_router(character_skills.router)
 app.include_router(invention_campaigns.router)
+app.include_router(rigs_router.router)
 
 
 # ── Auth helper for page routes ─────────────────────────────────

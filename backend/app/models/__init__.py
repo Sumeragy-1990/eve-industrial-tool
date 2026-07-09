@@ -8,6 +8,7 @@ from app.models.blueprint_material import BlueprintMaterial
 from app.models.cached_price import CachedPrice
 from app.models.market_order import MarketOrder
 from app.models.character_restock import CharacterRestockList, CharacterRestockListItem
+from app.models.rig import Rig
 from app.models.location_alias import LocationAlias
 from app.models.corp_warehouse import CorpWarehouseConfig
 from app.models.sde_blueprint import SDEBlueprint, SDEBlueprintMaterial, SDEBlueprintProduct, SDEBlueprintSkill
