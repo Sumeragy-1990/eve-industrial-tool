@@ -1554,7 +1554,13 @@ async def calculate_build_cost(
     item_plans = []
 
     # Unified rig table (manufacturing + reaction) — stations can have up to 3 rigs
-    _RIG_BONUS = {"none": 0.0, "t1": 0.02, "t2": 0.024, "t1_reaction": 0.01, "t2_reaction": 0.02}
+    _RIG_BONUS = {"none": 0.0, "t1": 0.02, "t2": 0.024,
+        "t1_small": 0.02, "t2_small": 0.024,
+        "t1_medium": 0.02, "t2_medium": 0.024,
+        "t1_large": 0.02, "t2_large": 0.024,
+        "t1_xl": 0.02, "t2_xl": 0.024,
+        "t1_component": 0.03, "t2_component": 0.036,
+        "t1_reaction": 0.01, "t2_reaction": 0.02}
     _SEC_MULT = {"highsec": 1.0, "lowsec": 1.9, "null": 2.1, "wh": 2.1}
     # NPC stations have no rigs — force to "none" (Issue 6)
     if facility.facility_type == "npc_station":

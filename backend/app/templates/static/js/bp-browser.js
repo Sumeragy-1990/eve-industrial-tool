@@ -2751,7 +2751,7 @@
         if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
         else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
         else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("capital") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
 
         // Skill-based probability from character skills
         var skillMod = 1.0;
@@ -3005,7 +3005,7 @@
         if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
         else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
         else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("capital") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
 
         var skillMod = 1.0;
         if (data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
@@ -3077,7 +3077,7 @@
         if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
         else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
         else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("capital") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
 
         var skillMod = 1.0;
         if (data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
@@ -3145,7 +3145,7 @@
         if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
         else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
         else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("capital") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
 
         var skillMod = 1.0;
         var maxDcLevel = 0;
@@ -7458,7 +7458,7 @@
             none: "\u2014", t1_small: "T1 Small Manuf.", t2_small: "T2 Small Manuf.",
             t1_medium: "T1 Medium Manuf.", t2_medium: "T2 Medium Manuf.",
             t1_large: "T1 Large Manuf.", t2_large: "T2 Large Manuf.",
-            t1_capital: "T1 Capital Manuf.", t2_capital: "T2 Capital Manuf.",
+            t1_xl: "T1 XL Manuf.", t2_xl: "T2 XL Manuf.",
             t1_component: "T1 Component", t2_component: "T2 Component",
             t1_reaction: "T1 React.", t2_reaction: "T2 React."
         };
@@ -7769,6 +7769,7 @@
             ? charSel.selectedOptions[0].textContent : "";
         oc.implant_slot7 = getSel("bpCfgImplSlot7") || "";
         oc.implant_slot8 = getSel("bpCfgImplSlot8") || "";
+        oc.tax_rate = parseFloat(getElVal("bpCfgTax")) || 0;
         oc.skills = modalEl ? modalEl._lastSkills || [] : [];
 
         if (order) {
