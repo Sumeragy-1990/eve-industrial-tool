@@ -4299,6 +4299,77 @@
         await _proceedCreateOrder(targetOrderIndex);
     }
 
+    /** Called when character select changes in config modal — loads skills */
+    function onCfgCharSelect() {
+        var sel = document.getElementById("bpCfgCharacter");
+        if (!sel) return;
+        var charId = sel.value;
+        if (!charId) {
+            document.getElementById("bpCfgSkillsDisplay").style.display = "none";
+            return;
+        }
+        _loadCfgCharacterSkills(charId);
+    }
+
+    /** Sync character skills from ESI for config modal */
+    function syncCfgCharSkills() {
+        var sel = document.getElementById("bpCfgCharacter");
+        if (!sel || !sel.value) { alert("Select a character first."); return; }
+        var charId = sel.value;
+        var list = document.getElementById("bpCfgSkillsList");
+        if (list) list.innerHTML = '<span class="text-info">Syncing with ESI...</span>';
+        apiPost("/skills/sync/" + charId, null).then(function() {
+            _loadCfgCharacterSkills(charId);
+        }).catch(function(err) {
+            if (list) list.innerHTML = '<span class="text-danger">Sync failed: ' + escHtml(err.message) + '</span>';
+        });
+    }
+
+    /** Load and display skills in config modal */
+    function _loadCfgCharacterSkills(charId) {
+        var display = document.getElementById("bpCfgSkillsDisplay");
+        var list = document.getElementById("bpCfgSkillsList");
+        if (!display || !list) return;
+        display.style.display = "block";
+        list.innerHTML = '<span class="text-secondary">Loading skills...</span>';
+
+        var skillMap = {
+            3380: "Industry", 3388: "Advanced Industry",
+            3398: "Adv. Large Ship Construction",
+            11452: "Mechanical Engineering", 11444: "Amarr Starship Eng.",
+            11450: "Gallente Starship Eng.", 11454: "Caldari Starship Eng.",
+            11448: "Minmatar Starship Eng.",
+        };
+
+        apiGet("/skills/" + charId).then(function(data) {
+            if (!data || !data.skills || data.skills.length === 0) {
+                list.innerHTML = '<span class="text-warning">No skills cached. Click ↻ to sync.</span>';
+                return;
+            }
+            var skills = data.skills || [];
+            var lines = [];
+            for (var si = 0; si < skills.length; si++) {
+                var s = skills[si];
+                if (skillMap[s.skill_type_id]) {
+                    lines.push('<span style="color:#8ab4f8;">' + escHtml(skillMap[s.skill_type_id]) + '</span> ' + s.skill_level);
+                }
+            }
+            list.innerHTML = lines.length > 0 ? lines.join(' &nbsp;|&nbsp; ') : '<span class="text-secondary">No relevant skills found.</span>';
+            var modalEl = document.getElementById("bpConfigModal");
+            if (modalEl) modalEl._lastSkills = data.skills;
+        }).catch(function() {
+            list.innerHTML = '<span class="text-danger">Error loading skills.</span>';
+        });
+    }
+
+    /** Called when facility type changes in config modal — show/hide rigs */
+    function onCfgFacilityChange() {
+        var facEl = document.getElementById("bpCfgFacilityType");
+        var rigsCol = document.getElementById("bpCfgRigsCol");
+        if (!facEl || !rigsCol) return;
+        rigsCol.style.display = (facEl.value === "npc_station") ? "none" : "block";
+    }
+
     /** Open station selector for the active order (or a specific order) */
     function showOrderStationSelector(orderIdx) {
         if (orderIdx == null) orderIdx = _activeOrderIndex;
@@ -4348,6 +4419,29 @@
         try { var old = bootstrap.Modal.getInstance(modalEl); if (old) old.dispose(); } catch(e) {}
         var bsModal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
         bsModal.show();
+    }
+
+    /** Load characters list into the config modal select */
+    function _loadCharactersIntoCfgSelect(selectedId) {
+        var sel = document.getElementById("bpCfgCharacter");
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Select Character —</option>';
+        apiGet("/auth/characters").then(function(chars) {
+            if (!chars || chars.length === 0) {
+                sel.innerHTML = '<option value="">— No characters —</option>';
+                return;
+            }
+            for (var ci = 0; ci < chars.length; ci++) {
+                var opt = document.createElement("option");
+                opt.value = chars[ci].character_id;
+                opt.textContent = chars[ci].character_name;
+                if (String(chars[ci].character_id) === String(selectedId)) opt.selected = true;
+                sel.appendChild(opt);
+            }
+            if (selectedId) { _loadCfgCharacterSkills(selectedId); }
+        }).catch(function() {
+            sel.innerHTML = '<option value="">— Error —</option>';
+        });
     }
 
     /** Load characters list into a select element */
@@ -7527,21 +7621,14 @@
         // Populate station presets dropdown
         populatePresetDropdown();
 
-        // Init skill color watchers (idempotent — safe to call multiple times)
-        initSkillColorWatchers();
+        // ── Character dropdown + skills ──
+        _loadCharactersIntoCfgSelect(c.character_id || 0);
 
-        // Update skill color dots to match current values
-        updateSkillColor("bpCfgSkillInd", "bpSkillIndDot");
-        updateSkillColor("bpCfgSkillAdvInd", "bpSkillAdvIndDot");
-        updateSkillColor("bpCfgSkillSup", "bpSkillSupDot");
-        updateSkillColor("bpCfgSkillMP", "bpSkillMPDot");
-        updateSkillColor("bpCfgSkillAMP", "bpSkillAMPDot");
-        updateSkillColor("bpCfgSkillCap", "bpSkillCapDot");
+        // ── Implants ──
+        setSel("bpCfgImplSlot7", c.implant_slot7 || "");
+        setSel("bpCfgImplSlot8", c.implant_slot8 || "");
 
-        // Render registered characters list
-        renderCharacterList();
-
-        // Facility
+        // ── Facility ──
         setSel("bpCfgFacilityType", c.facility_type || "npc_station");
         // Populate 3 rig slots
         function _setRig(id, val) {
@@ -7765,7 +7852,7 @@
             for (var si = 0; si < (systems || []).length; si++) {
                 if (systems[si].system_name === systemName) {
                     var secBadge = document.getElementById("bp" + prefixType.toUpperCase() + "SecClass");
-                    if (secBadge && prefixType === "sel") {
+                    if (secBadge && (prefixType === "sel" || prefixType === "cfg")) {
                         var sec = systems[si].security_status;
                         var secLabel = sec.toFixed(1);
                         if (sec >= 0.5) secBadge.className = "badge bg-success";
@@ -9265,6 +9352,9 @@
         onStationCharSelect: onStationCharSelect,
         syncStationCharSkills: syncStationCharSkills,
         onStationFacilityChange: onStationFacilityChange,
+        onCfgCharSelect: onCfgCharSelect,
+        syncCfgCharSkills: syncCfgCharSkills,
+        onCfgFacilityChange: onCfgFacilityChange,
         onInventionCharacterChange: onInventionCharacterChange,
         syncInventionSkills: syncInventionSkills,
         onDecryptorChange: function(typeId) {

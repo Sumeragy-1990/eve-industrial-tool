@@ -831,9 +831,6 @@
                         <div class="bp-order-meta" id="bpOrderDetailMeta">No order selected.</div>
                     </div>
                     <div class="d-flex gap-1">
-                        <button class="btn btn-sm btn-outline-info" onclick="BP.showOrderStationSelector()" title="Station & Character Config">
-                            <i class="bi bi-gear"></i>
-                        </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="BP.deleteOrder()" title="Delete Order">
                             <i class="bi bi-x-lg"></i>
                         </button>
@@ -1312,54 +1309,105 @@
             </div>
         </div>
 
+        <!-- ── Character + Skills ── -->
+        <div class="bp-config-section">
+            <div class="bp-config-section-title">Character & Skills</div>
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <label class="form-label mb-0 text-secondary">ESI Character</label>
+                    <div class="d-flex gap-1">
+                        <select class="form-select form-select-sm flex-grow-1" id="bpCfgCharacter" onchange="BP.onCfgCharSelect()">
+                            <option value="">— Select Character —</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-info" onclick="BP.syncCfgCharSkills()" title="Sync skills from ESI" style="font-size:0.7rem;">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </button>
+                    </div>
+                    <div id="bpCfgSkillsDisplay" style="display:none;margin-top:4px;">
+                        <span class="text-secondary" style="font-size:0.7rem;">Skills:</span>
+                        <div id="bpCfgSkillsList" style="font-size:0.7rem;color:#ccc;line-height:1.4;"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label mb-0 text-secondary">Implants</label>
+                    <select class="form-select form-select-sm mb-1" id="bpCfgImplSlot7" style="font-size:0.7rem;">
+                        <option value="">Slot 7: — None —</option>
+                        <option value="beancounter_industry">Beancounter Industry (-1% Material)</option>
+                    </select>
+                    <select class="form-select form-select-sm" id="bpCfgImplSlot8" style="font-size:0.7rem;">
+                        <option value="">Slot 8: — None —</option>
+                        <option value="gnome">Gnome K-Implant (-1% Zeit)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
         <!-- ── Station / Facility ── -->
         <div class="bp-config-section">
             <div class="bp-config-section-title">Station / Facility</div>
             <div class="row g-2">
                 <div class="col-md-6">
                     <label class="form-label mb-0 text-secondary">Facility Type</label>
-                    <select class="form-select form-select-sm" id="bpCfgFacilityType">
+                    <select class="form-select form-select-sm" id="bpCfgFacilityType" onchange="BP.onCfgFacilityChange()">
                         <option value="npc_station">NPC Station</option>
-                        <option value="player_structure">Player Structure</option>
+                        <option value="raitaru">Raitaru (Small Engineering Complex)</option>
+                        <option value="sotyo">Sotyo (Medium Engineering Complex)</option>
+                        <option value="azbel">Azbel (Large Engineering Complex)</option>
                     </select>
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label mb-0 text-secondary">Rigs (bis zu 3)</label>
+                <div class="col-md-6" id="bpCfgRigsCol">
+                    <label class="form-label mb-0 text-secondary">Rigs (up to 3)</label>
                     <div class="d-flex gap-1">
                         <select class="form-select form-select-sm" id="bpCfgRig1">
                             <option value="none">— No Rig —</option>
-                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
-                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
-                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
-                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                            <option value="t1_small" title="T1 Small Rig: -2% Material, -2% Zeit (Fregatten/Zerstörer)">T1 Small</option>
+                            <option value="t2_small" title="T2 Small Rig: -2.4% Material, -2.4% Zeit (Fregatten/Zerstörer)">T2 Small</option>
+                            <option value="t1_medium" title="T1 Medium Rig: -2% Material, -2% Zeit (Kreuzer/Schlachtkreuzer)">T1 Medium</option>
+                            <option value="t2_medium" title="T2 Medium Rig: -2.4% Material, -2.4% Zeit (Kreuzer/Schlachtkreuzer)">T2 Medium</option>
+                            <option value="t1_large" title="T1 Large Rig: -2% Material, -2% Zeit (Schlachtschiffe)">T1 Large</option>
+                            <option value="t2_large" title="T2 Large Rig: -2.4% Material, -2.4% Zeit (Schlachtschiffe)">T2 Large</option>
+                            <option value="t1_capital" title="T1 Capital Rig: -2% Material, -2% Zeit (Capitale)">T1 Capital</option>
+                            <option value="t2_capital" title="T2 Capital Rig: -2.4% Material, -2.4% Zeit (Capitale)">T2 Capital</option>
+                            <option value="t1_reaction" title="T1 Reaktionsrig: -1% Material (Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaktionsrig: -2% Material (Reaktionen)">T2 React.</option>
                         </select>
                         <select class="form-select form-select-sm" id="bpCfgRig2">
                             <option value="none">— No Rig —</option>
-                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
-                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
-                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
-                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                            <option value="t1_small" title="T1 Small Rig: -2% Material, -2% Zeit (Fregatten/Zerstörer)">T1 Small</option>
+                            <option value="t2_small" title="T2 Small Rig: -2.4% Material, -2.4% Zeit (Fregatten/Zerstörer)">T2 Small</option>
+                            <option value="t1_medium" title="T1 Medium Rig: -2% Material, -2% Zeit (Kreuzer/Schlachtkreuzer)">T1 Medium</option>
+                            <option value="t2_medium" title="T2 Medium Rig: -2.4% Material, -2.4% Zeit (Kreuzer/Schlachtkreuzer)">T2 Medium</option>
+                            <option value="t1_large" title="T1 Large Rig: -2% Material, -2% Zeit (Schlachtschiffe)">T1 Large</option>
+                            <option value="t2_large" title="T2 Large Rig: -2.4% Material, -2.4% Zeit (Schlachtschiffe)">T2 Large</option>
+                            <option value="t1_capital" title="T1 Capital Rig: -2% Material, -2% Zeit (Capitale)">T1 Capital</option>
+                            <option value="t2_capital" title="T2 Capital Rig: -2.4% Material, -2.4% Zeit (Capitale)">T2 Capital</option>
+                            <option value="t1_reaction" title="T1 Reaktionsrig: -1% Material (Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaktionsrig: -2% Material (Reaktionen)">T2 React.</option>
                         </select>
                         <select class="form-select form-select-sm" id="bpCfgRig3">
                             <option value="none">— No Rig —</option>
-                            <option value="t1" title="T1 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T1-Produkte)">T1 Manuf.</option>
-                            <option value="t2" title="T2 Manufacturing Rig: -1% Materialeinsatz / -2% Zeit (T2-Produkte)">T2 Manuf.</option>
-                            <option value="t1_reaction" title="T1 Reaction Rig: -2% Reaktionskosten (T1 Reaktionen)">T1 React.</option>
-                            <option value="t2_reaction" title="T2 Reaction Rig: -2% Reaktionskosten (T2 Reaktionen)">T2 React.</option>
+                            <option value="t1_small" title="T1 Small Rig: -2% Material, -2% Zeit (Fregatten/Zerstörer)">T1 Small</option>
+                            <option value="t2_small" title="T2 Small Rig: -2.4% Material, -2.4% Zeit (Fregatten/Zerstörer)">T2 Small</option>
+                            <option value="t1_medium" title="T1 Medium Rig: -2% Material, -2% Zeit (Kreuzer/Schlachtkreuzer)">T1 Medium</option>
+                            <option value="t2_medium" title="T2 Medium Rig: -2.4% Material, -2.4% Zeit (Kreuzer/Schlachtkreuzer)">T2 Medium</option>
+                            <option value="t1_large" title="T1 Large Rig: -2% Material, -2% Zeit (Schlachtschiffe)">T1 Large</option>
+                            <option value="t2_large" title="T2 Large Rig: -2.4% Material, -2.4% Zeit (Schlachtschiffe)">T2 Large</option>
+                            <option value="t1_capital" title="T1 Capital Rig: -2% Material, -2% Zeit (Capitale)">T1 Capital</option>
+                            <option value="t2_capital" title="T2 Capital Rig: -2.4% Material, -2.4% Zeit (Capitale)">T2 Capital</option>
+                            <option value="t1_reaction" title="T1 Reaktionsrig: -1% Material (Reaktionen)">T1 React.</option>
+                            <option value="t2_reaction" title="T2 Reaktionsrig: -2% Material (Reaktionen)">T2 React.</option>
                         </select>
                     </div>
                     <div style="font-size:0.62rem;color:var(--t-text-dim);margin-top:2px;line-height:1.3;">
-                        <span style="color:#7c8faa;">T1/T2 Manuf.</span> = Fertigungsrigs (Material/Zeit-Reduktion)<br>
-                        <span style="color:#7c8faa;">T1/T2 React.</span> = Reaktionsrigs (Reaktionskosten-Reduktion)
+                        <span style="color:#7c8faa;">Small</span> Fregatten/Zerstörer &nbsp;|&nbsp;
+                        <span style="color:#7c8faa;">Medium</span> Kreuzer/Schlachtkreuzer &nbsp;|&nbsp;
+                        <span style="color:#7c8faa;">Large</span> Schlachtschiffe &nbsp;|&nbsp;
+                        <span style="color:#7c8faa;">Capital</span> Capitale<br>
+                        <span style="color:#7c8faa;">React.</span> = Reaktionsrigs<br>
+                        <span class="text-warning">Nur bei Engineering Complexen verfügbar</span>
                     </div>
                 </div>
                 <div class="col-md-8">
-                    <label class="form-label mb-0 text-secondary">Station / Structure</label>
-                    <select class="form-select form-select-sm" id="bpCfgStation">
-                        <option value="">-- Select station --</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
                     <label class="form-label mb-0 text-secondary">Tax Rate (%)</label>
                     <div class="d-flex align-items-center gap-2">
                         <input type="number" class="form-control form-control-sm" id="bpCfgTax" min="0" max="25" value="5.0" step="0.01" style="width:100px;">
@@ -1399,139 +1447,22 @@
             </div>
         </div>
 
-        <!-- ── Price Source ── -->
+        <!-- ── System Security (automatic) ── -->
         <div class="bp-config-section">
-            <div class="bp-config-section-title">Price Source</div>
-            <div class="d-flex gap-4">
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="bpCfgPriceSource" id="bpCfgPriceSell" value="jita_sell" checked>
-                    <label class="form-check-label" for="bpCfgPriceSell">Jita Sell (lowest sell order)</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input" type="radio" name="bpCfgPriceSource" id="bpCfgPriceBuy" value="jita_buy">
-                    <label class="form-check-label" for="bpCfgPriceBuy">Jita Buy (highest buy order)</label>
-                </div>
-            </div>
-            <div class="small text-secondary mt-1" id="bpCfgPriceNote">
-                Uses the lowest sell price from Jita market.
-            </div>
-        </div>
-
-        <!-- ── Skills ── -->
-        <div class="bp-config-section">
-            <div class="bp-config-section-title">Skills — <span id="bpCfgSkillCharName">Nadja</span></div>
-            <div class="row g-2">
-                <div class="col-4 col-md-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Industry</label>
-                    <div class="d-flex align-items-center">
-                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillInd">
-                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                            <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
-                        </select>
-                        <span class="bp-skill-indicator" id="bpSkillIndDot" style="background:#28a745;"></span>
-                    </div>
-                </div>
-                <div class="col-4 col-md-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Adv Industry</label>
-                    <div class="d-flex align-items-center">
-                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillAdvInd">
-                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                            <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
-                        </select>
-                        <span class="bp-skill-indicator" id="bpSkillAdvIndDot" style="background:#28a745;"></span>
-                    </div>
-                </div>
-                <div class="col-4 col-md-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Supply Chain</label>
-                    <div class="d-flex align-items-center">
-                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillSup">
-                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                            <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option>
-                        </select>
-                        <span class="bp-skill-indicator" id="bpSkillSupDot" style="background:#fd7e14;"></span>
-                    </div>
-                </div>
-                <div class="col-4 col-md-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Mass Prod</label>
-                    <div class="d-flex align-items-center">
-                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillMP">
-                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                            <option value="3">3</option><option value="4">4</option><option value="5" selected>5</option>
-                        </select>
-                        <span class="bp-skill-indicator" id="bpSkillMPDot" style="background:#28a745;"></span>
-                    </div>
-                </div>
-                <div class="col-4 col-md-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Adv Mass P</label>
-                    <div class="d-flex align-items-center">
-                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillAMP">
-                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                            <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option>
-                        </select>
-                        <span class="bp-skill-indicator" id="bpSkillAMPDot" style="background:#fd7e14;"></span>
-                    </div>
-                </div>
-                <div class="col-4 col-md-2">
-                    <label class="form-label mb-0 text-secondary" style="font-size:0.7rem;">Capital Ship</label>
-                    <div class="d-flex align-items-center">
-                        <select class="form-select form-select-sm bp-skill-select" id="bpCfgSkillCap">
-                            <option value="0">0</option><option value="1">1</option><option value="2">2</option>
-                            <option value="3" selected>3</option><option value="4">4</option><option value="5">5</option>
-                        </select>
-                        <span class="bp-skill-indicator" id="bpSkillCapDot" style="background:#6c757d;"></span>
-                    </div>
-                </div>
-            </div>
-            <div class="small text-secondary mt-1">
-                <span class="bp-skill-dot" style="background:#28a745;"></span> 5
-                <span class="bp-skill-dot" style="background:#fd7e14;"></span> 4
-                <span class="bp-skill-dot" style="background:#6c757d;"></span> 3
-                <span class="bp-skill-dot" style="background:#dc3545;"></span> <3
-            </div>
-        </div>
-
-        <!-- ── Implants ── -->
-        <div class="bp-config-section">
-            <div class="bp-config-section-title">Implants</div>
-            <div class="row g-2">
-                <div class="col-md-4">
-                    <label class="form-label mb-0 text-secondary">Slot 7 (Material Efficiency)</label>
-                    <select class="form-select form-select-sm" id="bpCfgImplant7">
-                        <option value="">None</option>
-                        <option value="beancounter_industry">Zainou 'Beancounter' Industry BX-80 (-1% Mat)</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label mb-0 text-secondary">Slot 8 (Time Efficiency)</label>
-                    <select class="form-select form-select-sm" id="bpCfgImplant8">
-                        <option value="">None</option>
-                        <option value="gnome">Zainou 'Gnome' K-Implant (-1% Time)</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label mb-0 text-secondary">Slot 10</label>
-                    <select class="form-select form-select-sm" id="bpCfgImplant10">
-                        <option value="">None</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── Character ── -->
-        <div class="bp-config-section">
-            <div class="bp-config-section-title">Character</div>
+            <div class="bp-config-section-title">System Security</div>
             <div class="row g-2 align-items-center">
-                <div class="col-md-6">
-                    <label class="form-label mb-0 text-secondary">Character Name</label>
-                    <input type="text" class="form-control form-control-sm" id="bpCfgCharName" value="Nadja" style="font-size:0.75rem;">
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label mb-0 text-secondary">Character ID</label>
-                    <input type="number" class="form-control form-control-sm" id="bpCfgCharId" value="0" style="font-size:0.75rem;">
+                <div class="col-md-8">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-secondary" id="bpCfgSecClass" style="display:none;">—</span>
+                        <span class="small text-secondary" id="bpCfgSecNote">Auto via System-Suche, Fallback manuell:</span>
+                    </div>
+                    <select class="form-select form-select-sm mt-1" id="bpCfgSecClassManual" style="width:200px;font-size:0.75rem;">
+                        <option value="highsec">Highsec (1.0 – 0.5)</option>
+                        <option value="lowsec">Lowsec (0.4 – 0.1)</option>
+                        <option value="nullsec">Nullsec / WH (0.0)</option>
+                    </select>
                 </div>
             </div>
-            <div class="small text-secondary mt-1">Registered Characters</div>
-            <div class="bp-char-list" id="bpCfgCharList"></div>
         </div>
 
     </div>
