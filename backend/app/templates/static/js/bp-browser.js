@@ -7443,54 +7443,80 @@
         if (!bar) return;
         const c = loadConfig();
 
-        // Facility type icon
-        const facIcon = c.facility_type === "player_structure" ? "🏭" : "🏪";
-        const facLabel = c.facility_type === "player_structure" ? "Player Structure" : "NPC Station";
+        // Facility type icon + label
+        var facLabels = { npc_station: "NPC Station", raitaru: "Raitaru", sotyo: "Sotyo", azbel: "Azbel" };
+        var facIcons = { npc_station: "🏪", raitaru: "🏭", sotyo: "🏭", azbel: "🏭" };
+        var facType = c.facility_type || "npc_station";
+        var facLabel = facLabels[facType] || "NPC Station";
+        var facIcon = facIcons[facType] || "🏪";
 
-        // Rig labels — show up to 3 rigs
-        const rigLabels = { none: "\u2014", t1: "T1 Manuf.", t2: "T2 Manuf.", t1_reaction: "T1 React.", t2_reaction: "T2 React." };
+        // Rig labels — full EVE names
+        const rigLabels = {
+            none: "\u2014", t1_small: "T1 Small Manuf.", t2_small: "T2 Small Manuf.",
+            t1_medium: "T1 Medium Manuf.", t2_medium: "T2 Medium Manuf.",
+            t1_large: "T1 Large Manuf.", t2_large: "T2 Large Manuf.",
+            t1_capital: "T1 Capital Manuf.", t2_capital: "T2 Capital Manuf.",
+            t1_component: "T1 Component", t2_component: "T2 Component",
+            t1_reaction: "T1 React.", t2_reaction: "T2 React."
+        };
         var _rigParts2 = [c.rig1, c.rig2, c.rig3].filter(function(r) { return r && r !== "none"; });
         var rigLabel = _rigParts2.length > 0
             ? _rigParts2.map(function(r) { return rigLabels[r] || r; }).join(" + ")
             : "No Rigs";
 
-        // Price source
-        const priceLabel = c.price_source === "jita_buy" ? "Jita Buy" : "Jita Sell";
+        // Security class display
+        var secDisplay = c.security_class || "highsec";
+        var secBadgeClass = secDisplay === "highsec" ? "bg-success" : (secDisplay === "lowsec" ? "bg-warning text-dark" : "bg-danger");
 
-        // Skills summary
-        const skillsStr = "Ind" + c.skill_industry + " Adv" + c.skill_adv_industry +
-            " Sup" + c.skill_supply_chain + " MP" + c.skill_mass_production +
-            (c.skill_adv_mass_production ? " AMP" + c.skill_adv_mass_production : "") +
-            (c.skill_capital_ship ? " Cap" + c.skill_capital_ship : "");
+        // Character name (from order.config or global)
+        // Use the active order's config if available
+        var order = _productionOrders[_activeOrderIndex];
+        var oc = (order && order.config) || {};
+        var charName = oc.character_name || c.character_name || "";
+        var charId = oc.character_id || c.character_id || 0;
+
+        // Skills summary from order.config skills array or global
+        var skillsStr = "";
+        if (oc.skills && Array.isArray(oc.skills) && oc.skills.length > 0) {
+            var skillMap = { 3380: "Ind", 3388: "Adv", 3398: "ALSC",
+                11452: "ME", 11444: "ASE", 11450: "GSE", 11454: "CSE", 11448: "MSE" };
+            var parts = [];
+            for (var si = 0; si < oc.skills.length; si++) {
+                var s = oc.skills[si];
+                var name = skillMap[s.skill_type_id];
+                if (name) parts.push(name + s.skill_level);
+            }
+            skillsStr = parts.length > 0 ? parts.join(" ") : "No skills";
+        } else if (charId) {
+            skillsStr = "Skills: (↻ sync)";
+        } else {
+            skillsStr = "No character";
+        }
 
         // System cost index display
-        var indexDisplay = c.system_cost_index != null ? c.system_cost_index.toFixed(2) + "%" : "—";
+        var ocIdx = oc.system_cost_index != null ? oc.system_cost_index : c.system_cost_index;
+        var indexDisplay = ocIdx != null ? (ocIdx * 100).toFixed(2) + "%" : "—";
 
-        // Station display name
-        var stationDisplay = c.station_name || c.system_name || "—";
+        // System name display
+        var sysName = oc.system_name || c.system_name || "—";
 
-        // Implant display with icons and readable names
+        // Implant display
         var implantLabels = {
             beancounter_industry: 'Beancounter (-1% Mat)',
             gnome: 'Gnome (-1% Time)',
         };
-        var implantIcons = {
-            slot7: '<i class="bi bi-cpu" style="color:#6f42c1;"></i>',
-            slot8: '<i class="bi bi-motherboard" style="color:#0dcaf0;"></i>',
-            slot10: '<i class="bi bi-memory" style="color:#fd7e14;"></i>',
-        };
         var implantParts = [];
-        if (c.implant_slot7) implantParts.push(implantIcons.slot7 + ' ' + (implantLabels[c.implant_slot7] || c.implant_slot7));
-        if (c.implant_slot8) implantParts.push(implantIcons.slot8 + ' ' + (implantLabels[c.implant_slot8] || c.implant_slot8));
-        if (c.implant_slot10) implantParts.push(implantIcons.slot10 + ' ' + (implantLabels[c.implant_slot10] || c.implant_slot10));
+        var i7 = oc.implant_slot7 || c.implant_slot7 || "";
+        var i8 = oc.implant_slot8 || c.implant_slot8 || "";
+        if (i7) implantParts.push('<i class="bi bi-cpu" style="color:#6f42c1;"></i> ' + (implantLabels[i7] || i7));
+        if (i8) implantParts.push('<i class="bi bi-motherboard" style="color:#0dcaf0;"></i> ' + (implantLabels[i8] || i8));
         var implantStr = implantParts.length > 0 ? implantParts.join(" / ") : '<span class="text-secondary">None</span>';
 
-        // Preset-Dropdown fuer Direktauswahl
+        // Preset-Dropdown
         var presets = loadStationPresets();
         var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
         for (var pk in presets) {
-            var isActive = (c.station_name === presets[pk].station_name && c.rigs === presets[pk].rigs)
-                && (c.rig1 === presets[pk].rig1 && c.rig2 === presets[pk].rig2 && c.rig3 === presets[pk].rig3);
+            var isActive = (c.station_name === presets[pk].station_name);
             presetOptions += '<option value="' + escHtml(pk) + '"' + (isActive ? ' selected' : '') + '>' + escHtml(pk) + '</option>';
         }
         var presetBar = '<div class="bp-config-bar-line" style="gap:0.5rem;">' +
@@ -7498,37 +7524,30 @@
             '<select class="bp-price-source-select" style="min-width:140px;" onchange="BP.applyStationPresetDirect(this.value)">' + presetOptions + '</select>' +
             '</div>';
 
-        // Price last-sync timestamp (Issue 5)
+        // Price last-sync timestamp
         var lastSyncTs = _priceCache.savedAt || _priceCache.lastFetched;
         var lastSyncDisplay = lastSyncTs ? _formatTimestamp(lastSyncTs) : "—";
 
         bar.innerHTML = presetBar +
             '<div class="bp-config-bar-line">' +
-                '<span class="bp-config-station" title="Station: ' + escHtml(stationDisplay) + '">' +
-                    '<i class="bi bi-geo-alt"></i> ' + escHtml(stationDisplay) + '</span>' +
+                '<span class="bp-config-station" title="System: ' + escHtml(sysName) + '">' +
+                    '<i class="bi bi-geo-alt"></i> ' + escHtml(sysName) + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
                 '<span title="Facility Type">' + facIcon + ' ' + facLabel + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
-                '<span title="Rig"><i class="bi bi-tools"></i> ' + rigLabel + '</span>' +
+                '<span title="Rigs"><i class="bi bi-tools"></i> ' + rigLabel + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
-                '<span title="Tax Rate"><i class="bi bi-percent"></i> ' + c.tax_rate.toFixed(2) + '%</span>' +
+                '<span title="Security Class"><span class="badge ' + secBadgeClass + '" style="font-size:0.6rem;">' + secDisplay + '</span></span>' +
             '</div>' +
             '<div class="bp-config-bar-line">' +
-                '<span title="System Cost Index"><i class="bi bi-graph-up"></i> Index: ' + indexDisplay + '</span>' +
-                '<span class="text-secondary mx-1">|</span>' +
-                '<span title="Price Source"><i class="bi bi-currency-dollar"></i> ' +
-                    '<select class="bp-price-source-select" onchange="BP.setPriceSource(this.value)" title="Price Source">' +
-                        '<option value="jita_sell"' + (c.price_source === "jita_sell" ? " selected" : "") + '>Jita Sell</option>' +
-                        '<option value="jita_buy"' + (c.price_source === "jita_buy" ? " selected" : "") + '>Jita Buy</option>' +
-                    '</select></span>' +
-                '<span class="text-secondary mx-1">|</span>' +
-                '<span title="Prices last synced"><i class="bi bi-clock-history"></i> Sync: ' + lastSyncDisplay + '</span>' +
+                '<span title="Cost Index"><i class="bi bi-graph-up"></i> ' + indexDisplay + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
                 '<span title="Implants"><i class="bi bi-cpu"></i> ' + implantStr + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
-                '<span title="Skills"><i class="bi bi-book"></i> ' + skillsStr + '</span>' +
+                '<span title="Character & Skills"><i class="bi bi-person"></i> ' + escHtml(charName || "No character") + '</span>' +
+                (skillsStr ? ' <span class="text-secondary" style="font-size:0.65rem;">(' + skillsStr + ')</span>' : '') +
                 '<span class="text-secondary mx-1">|</span>' +
-                '<span title="Character"><i class="bi bi-person"></i> ' + escHtml(c.character_name || "Nadja") + '</span>' +
+                '<span title="Prices last synced"><i class="bi bi-clock-history"></i> ' + lastSyncDisplay + '</span>' +
             '</div>';
     }
 
