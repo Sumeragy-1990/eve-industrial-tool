@@ -2703,6 +2703,7 @@
     var _inventionCostIndex = 0.01;
     var _inventionCustomInstallFee = null;
     var _inventionStationSelectorActive = false;
+    var _stationOrderTarget = null;
     var _inventionCharacterId = null;
     var _inventionCharSkills = {};
 
@@ -4047,7 +4048,46 @@
     var _bpcLastFetchStatus = null; // 'ok' | 'auth_fail' | 'error'
 
     async function _fetchBuildCostsForOrder(order) {
-        const config = loadBuildConfig();
+        const globalCfg = loadBuildConfig();
+        // Order-specific config overrides global defaults
+        const oc = (order && order.config) || {};
+        const config = {
+            facility_type: oc.facility_type || globalCfg.facility_type || "npc_station",
+            rig1: oc.rig1 || globalCfg.rig1 || "none",
+            rig2: oc.rig2 || globalCfg.rig2 || "none",
+            rig3: oc.rig3 || globalCfg.rig3 || "none",
+            security_class: oc.security_class || globalCfg.security_class || "highsec",
+            system_cost_index: oc.system_cost_index != null ? oc.system_cost_index : (globalCfg.system_cost_index || null),
+            price_source: globalCfg.price_source || "jita_sell",
+            skill_industry: (oc.skills && oc.skills.length > 0)
+                ? (_getSkillLevel(oc.skills, 3380) || globalCfg.skill_industry || 5)
+                : (globalCfg.skill_industry || 5),
+            skill_adv_industry: (oc.skills && oc.skills.length > 0)
+                ? (_getSkillLevel(oc.skills, 3388) || globalCfg.skill_adv_industry || 5)
+                : (globalCfg.skill_adv_industry || 5),
+            implant_slot7: oc.implant_slot7 || globalCfg.implant_slot7 || "",
+            implant_slot8: oc.implant_slot8 || globalCfg.implant_slot8 || "",
+        };
+        // Build comma-separated rig string
+        var rigsStr = [config.rig1, config.rig2, config.rig3].filter(function(r) { return r && r !== "none"; }).join(",") || "none";
+        // Skills for payload (existing fields + extended)
+        var skillsPayload = {
+            industry: config.skill_industry,
+            advanced_industry: config.skill_adv_industry,
+            supply_chain_management: globalCfg.skill_supply_chain || 4,
+            mass_production: globalCfg.skill_mass_production || 5,
+            adv_mass_production: globalCfg.skill_adv_mass_production || 4,
+            capital_ship_construction: globalCfg.skill_capital_ship || 3,
+        };
+        // Add Advanced Large Ship Construction from order skills
+        if (oc.skills && oc.skills.length > 0) {
+            skillsPayload.advanced_large_ship = _getSkillLevel(oc.skills, 3398) || 0;
+            skillsPayload.mechanical_engineering = _getSkillLevel(oc.skills, 11452) || 0;
+            skillsPayload.caldari_starship_eng = _getSkillLevel(oc.skills, 11454) || 0;
+            skillsPayload.amarr_starship_eng = _getSkillLevel(oc.skills, 11444) || 0;
+            skillsPayload.gallente_starship_eng = _getSkillLevel(oc.skills, 11450) || 0;
+            skillsPayload.minmatar_starship_eng = _getSkillLevel(oc.skills, 11448) || 0;
+        }
         const payload = {
             cart_items: order.items.map(i => ({
                 blueprint_type_id: i.blueprint_type_id,
@@ -4056,19 +4096,19 @@
                 te: i.te,
             })),
             facility: {
-                facility_type: config.facility_type || "npc_station",
-                rigs: config.rigs || "none",
-                security_class: config.security_class || "highsec",
-                tax_rate: config.tax_rate || 5.0,
+                facility_type: config.facility_type,
+                rigs: rigsStr,
+                security_class: config.security_class,
+                tax_rate: globalCfg.tax_rate || 5.0,
                 system_cost_index: config.system_cost_index || null,
-                price_source: config.price_source || "jita_sell",
+                price_source: config.price_source,
             },
-            skills: {
-                industry: config.skill_industry || 5,
-                advanced_industry: config.skill_adv_industry || 5,
-                supply_chain_management: config.skill_supply_chain || 4,
+            skills: skillsPayload,
+            implants: {
+                slot7: config.implant_slot7 || null,
+                slot8: config.implant_slot8 || null,
+                slot10: null,
             },
-            implants: config.implants || {},
             use_buy_prices: (config.price_source === "jita_buy"),
         };
         try {
@@ -4259,6 +4299,167 @@
         await _proceedCreateOrder(targetOrderIndex);
     }
 
+    /** Open station selector for the active order (or a specific order) */
+    function showOrderStationSelector(orderIdx) {
+        if (orderIdx == null) orderIdx = _activeOrderIndex;
+        var order = _productionOrders[orderIdx];
+        if (!order) { alert("No active order."); return; }
+
+        _inventionStationSelectorActive = false;
+        var cfg = order.config || loadConfig();
+        _stationOrderTarget = orderIdx;
+
+        // ── Load characters into dropdown ──
+        _loadCharactersIntoSelect("bpSelCharacter", cfg.character_id || "");
+
+        // ── Facility ──
+        setSel("bpSelFacilityType", cfg.facility_type || "npc_station");
+        onStationFacilityChange();
+
+        // ── Rigs ──
+        setSel("bpSelRig1", cfg.rig1 || "none");
+        setSel("bpSelRig2", cfg.rig2 || "none");
+        setSel("bpSelRig3", cfg.rig3 || "none");
+
+        // ── System ──
+        var sysNameEl = document.getElementById("bpSelSystemName");
+        if (sysNameEl) sysNameEl.value = cfg.system_name || "";
+        var idxResultEl = document.getElementById("bpSelIdxResult");
+        if (idxResultEl) {
+            idxResultEl.textContent = cfg.system_cost_index != null ? (cfg.system_cost_index * 100).toFixed(2) + "%" : "—";
+        }
+        var manualIdxEl = document.getElementById("bpSelIdxManual");
+        if (manualIdxEl) {
+            manualIdxEl.value = cfg.system_cost_index != null ? parseFloat((cfg.system_cost_index * 100).toFixed(2)) : 5.0;
+        }
+        var secBadge = document.getElementById("bpSelSecClass");
+        if (secBadge) {
+            secBadge.textContent = cfg.security_class || "";
+            secBadge.style.display = cfg.security_class ? "inline-block" : "none";
+        }
+
+        // ── Implants ──
+        setSel("bpSelImplSlot7", cfg.implant_slot7 || "");
+        setSel("bpSelImplSlot8", cfg.implant_slot8 || "");
+
+        // ── Show modal ──
+        var modalEl = document.getElementById("bpStationSelectorModal");
+        if (!modalEl) return;
+        try { var old = bootstrap.Modal.getInstance(modalEl); if (old) old.dispose(); } catch(e) {}
+        var bsModal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
+        bsModal.show();
+    }
+
+    /** Load characters list into a select element */
+    function _loadCharactersIntoSelect(selectId, selectedId) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+        sel.innerHTML = '<option value="">— Select Character —</option>';
+        apiGet("/auth/characters").then(function(chars) {
+            if (!chars || chars.length === 0) {
+                sel.innerHTML = '<option value="">— No characters (add in Auth tab) —</option>';
+                return;
+            }
+            for (var ci = 0; ci < chars.length; ci++) {
+                var opt = document.createElement("option");
+                opt.value = chars[ci].character_id;
+                opt.textContent = chars[ci].character_name;
+                if (String(chars[ci].character_id) === String(selectedId)) opt.selected = true;
+                sel.appendChild(opt);
+            }
+            // If a character is selected, load its skills
+            if (selectedId) {
+                _loadCharacterSkills(selectedId);
+            }
+        }).catch(function() {
+            sel.innerHTML = '<option value="">— Error loading characters —</option>';
+        });
+    }
+
+    /** Called when character dropdown changes — load skills from ESI cache */
+    function onStationCharSelect() {
+        var sel = document.getElementById("bpSelCharacter");
+        if (!sel) return;
+        var charId = sel.value;
+        if (!charId) {
+            document.getElementById("bpSelSkillsDisplay").style.display = "none";
+            return;
+        }
+        _loadCharacterSkills(charId);
+    }
+
+    /** Load and display skills for a character */
+    function _loadCharacterSkills(charId) {
+        var display = document.getElementById("bpSelSkillsDisplay");
+        var list = document.getElementById("bpSelSkillsList");
+        if (!display || !list) return;
+        display.style.display = "block";
+        list.innerHTML = '<span class="text-secondary">Loading skills...</span>';
+
+        // Manufacturing-relevant skill type IDs
+        var skillMap = {
+            3380: "Industry",
+            3388: "Advanced Industry",
+            3398: "Advanced Large Ship Construction",
+            11452: "Mechanical Engineering",
+            11444: "Amarr Starship Engineering",
+            11450: "Gallente Starship Engineering",
+            11454: "Caldari Starship Engineering",
+            11448: "Minmatar Starship Engineering",
+        };
+
+        apiGet("/skills/" + charId).then(function(data) {
+            if (!data || !data.skills || data.skills.length === 0) {
+                list.innerHTML = '<span class="text-warning">No skills cached. Click ↻ to sync from ESI.</span>';
+                return;
+            }
+            var skills = data.skills || [];
+            var lines = [];
+            for (var si = 0; si < skills.length; si++) {
+                var s = skills[si];
+                var name = skillMap[s.skill_type_id] || s.name || ("Skill " + s.skill_type_id);
+                if (skillMap[s.skill_type_id]) {
+                    lines.push('<span style="color:#8ab4f8;">' + escHtml(name) + '</span>: ' + s.skill_level);
+                }
+            }
+            if (lines.length === 0) {
+                // Show all skills if none matched the manufacturing map
+                for (var si = 0; si < skills.length; si++) {
+                    var s = skills[si];
+                    lines.push(escHtml(s.name || ("Skill " + s.skill_type_id)) + ': ' + s.skill_level);
+                }
+            }
+            list.innerHTML = lines.length > 0 ? lines.join(' &nbsp;|&nbsp; ') : '<span class="text-secondary">No manufacturing-relevant skills found.</span>';
+            // Also store skills on the modal for confirm
+            var modalEl = document.getElementById("bpStationSelectorModal");
+            if (modalEl) modalEl._lastSkills = data.skills;
+        }).catch(function() {
+            list.innerHTML = '<span class="text-danger">Error loading skills.</span>';
+        });
+    }
+
+    /** Sync character skills from ESI */
+    function syncStationCharSkills() {
+        var sel = document.getElementById("bpSelCharacter");
+        if (!sel || !sel.value) { alert("Select a character first."); return; }
+        var charId = sel.value;
+        var list = document.getElementById("bpSelSkillsList");
+        if (list) list.innerHTML = '<span class="text-info">Syncing with ESI...</span>';
+        apiPost("/skills/sync/" + charId, null).then(function() {
+            _loadCharacterSkills(charId);
+        }).catch(function(err) {
+            if (list) list.innerHTML = '<span class="text-danger">Sync failed: ' + escHtml(err.message) + '</span>';
+        });
+    }
+
+    /** Called when facility type changes — show/hide rigs section */
+    function onStationFacilityChange() {
+        var facEl = document.getElementById("bpSelFacilityType");
+        var rigsSection = document.getElementById("bpSelRigsSection");
+        if (!facEl || !rigsSection) return;
+        rigsSection.style.display = (facEl.value === "npc_station") ? "none" : "block";
+    }
+
     /** Open station selector for invention — sets the context flag so
      *  the modal confirm handler saves cost index to _inventionCostIndex. */
     function showInventionStationSelector() {
@@ -4326,6 +4527,39 @@
                     if (summaryEl) summaryEl.innerHTML = _buildInventionSummary(_inventionData);
                 }
             }
+        } else if (_stationOrderTarget != null) {
+            // Save config to the target order
+            var order = _productionOrders[_stationOrderTarget];
+            if (order) {
+                var charSel = document.getElementById("bpSelCharacter");
+                var c = {
+                    character_id: charSel ? parseInt(charSel.value) || 0 : 0,
+                    character_name: charSel && charSel.selectedOptions && charSel.selectedOptions[0]
+                        ? charSel.selectedOptions[0].textContent : "",
+                    facility_type: getSel("bpSelFacilityType") || "npc_station",
+                    rig1: getSel("bpSelRig1") || "none",
+                    rig2: getSel("bpSelRig2") || "none",
+                    rig3: getSel("bpSelRig3") || "none",
+                    system_name: getElVal("bpSelSystemName") || "",
+                    system_cost_index: systemCostIndex != null ? systemCostIndex / 100 : null,
+                    security_class: (function() {
+                        var secBadge = document.getElementById("bpSelSecClass");
+                        if (secBadge && secBadge.style.display !== "none") return secBadge.textContent;
+                        return null;
+                    })(),
+                    implant_slot7: getSel("bpSelImplSlot7") || "",
+                    implant_slot8: getSel("bpSelImplSlot8") || "",
+                };
+                c.skills = modalEl ? modalEl._lastSkills || [] : [];
+                order.config = c;
+                saveOrders();
+                if (_activeOrderIndex === _stationOrderTarget) {
+                    _fetchBuildCostsForOrder(order).then(function() {
+                        renderOrderDetail();
+                    });
+                }
+            }
+            _stationOrderTarget = null;
         }
 
         // Close modal
@@ -7522,6 +7756,29 @@
         if (!idxResultEl) return;
         idxResultEl.textContent = "Looking up...";
 
+        // Also fetch security info for station selector
+        fetch("/api/industry/systems-search?prefix=" + encodeURIComponent(systemName.substring(0, 3)) + "&limit=5", {
+            credentials: "include"
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(systems) {
+            for (var si = 0; si < (systems || []).length; si++) {
+                if (systems[si].system_name === systemName) {
+                    var secBadge = document.getElementById("bp" + prefixType.toUpperCase() + "SecClass");
+                    if (secBadge && prefixType === "sel") {
+                        var sec = systems[si].security_status;
+                        var secLabel = sec.toFixed(1);
+                        if (sec >= 0.5) secBadge.className = "badge bg-success";
+                        else if (sec >= 0.0) secBadge.className = "badge bg-warning text-dark";
+                        else secBadge.className = "badge bg-danger";
+                        secBadge.textContent = secLabel;
+                        secBadge.style.display = "inline-block";
+                    }
+                    break;
+                }
+            }
+        }).catch(function() {});
+
         fetch("/api/industry/system-cost-index?system_name=" + encodeURIComponent(systemName), {
             credentials: "include"
         })
@@ -7579,6 +7836,15 @@
     function getEl(id) {
         var el = document.getElementById(id);
         return el ? el.value : null;
+    }
+
+    /** Helper: get skill level from skills array by type_id */
+    function _getSkillLevel(skills, typeId) {
+        if (!skills || !Array.isArray(skills)) return 0;
+        for (var si = 0; si < skills.length; si++) {
+            if (skills[si].skill_type_id === typeId) return skills[si].skill_level;
+        }
+        return 0;
     }
 
     /** Update price source note text */
@@ -8994,7 +9260,11 @@
         onInvSearchInput: onInvSearchInput,
         clearInvSearch: clearInvSearch,
         loadInventionStandalone: loadInventionStandalone,
+        showOrderStationSelector: showOrderStationSelector,
         showInventionStationSelector: showInventionStationSelector,
+        onStationCharSelect: onStationCharSelect,
+        syncStationCharSkills: syncStationCharSkills,
+        onStationFacilityChange: onStationFacilityChange,
         onInventionCharacterChange: onInventionCharacterChange,
         syncInventionSkills: syncInventionSkills,
         onDecryptorChange: function(typeId) {

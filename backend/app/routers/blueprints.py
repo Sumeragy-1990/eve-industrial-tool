@@ -1507,6 +1507,13 @@ class SkillConfig(BaseModel):
     mass_production: int = 5
     advanced_mass_production: int = 4
     capital_ship_construction: int = 3
+    # 🌟 NEU: Ship construction + Engineering skills
+    advanced_large_ship: int = 0  # Advanced Large Ship Construction (-2%/lvl for Large/Capital)
+    mechanical_engineering: int = 0  # -1%/lvl for T2 manufacturing
+    caldari_starship_eng: int = 0  # Caldari Starship Engineering (-1%/lvl)
+    amarr_starship_eng: int = 0  # Amarr Starship Engineering (-1%/lvl)
+    gallente_starship_eng: int = 0  # Gallente Starship Engineering (-1%/lvl)
+    minmatar_starship_eng: int = 0  # Minmatar Starship Engineering (-1%/lvl)
 
 
 class BuildCostRequest(BaseModel):
@@ -1849,6 +1856,21 @@ async def calculate_build_cost(
             time_mult *= max(0.01, 1 - 0.04 * skills.industry)
             if skills.advanced_industry:
                 time_mult *= max(0.01, 1 - 0.03 * skills.advanced_industry)
+            # Advanced Large Ship Construction: -2%/Level for Large and Capital ships
+            if skills.advanced_large_ship:
+                time_mult *= max(0.01, 1 - 0.02 * skills.advanced_large_ship)
+            # Engineering Skills: -1%/Level for T2 manufacturing (race-specific)
+            # Add ALL engineering skills (they apply based on blueprint race)
+            if skills.mechanical_engineering:
+                time_mult *= max(0.01, 1 - 0.01 * skills.mechanical_engineering)
+            if skills.caldari_starship_eng:
+                time_mult *= max(0.01, 1 - 0.01 * skills.caldari_starship_eng)
+            if skills.amarr_starship_eng:
+                time_mult *= max(0.01, 1 - 0.01 * skills.amarr_starship_eng)
+            if skills.gallente_starship_eng:
+                time_mult *= max(0.01, 1 - 0.01 * skills.gallente_starship_eng)
+            if skills.minmatar_starship_eng:
+                time_mult *= max(0.01, 1 - 0.01 * skills.minmatar_starship_eng)
 
         # Implant-Zeitreduktion (Slot 8 = Gnome K-Implantat -1% Zeit)
         implants = body.implants or {}
