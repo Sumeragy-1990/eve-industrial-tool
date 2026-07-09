@@ -4107,10 +4107,6 @@
                         oi => oi.blueprint_type_id === apiItem.blueprint_type_id
                     );
                     if (!orderItem) continue;
-                    // Preserve runs from API response (Bugfix: ensure runs survive async call)
-                    if (apiItem.runs != null) {
-                        orderItem.runs = apiItem.runs;
-                    }
                     // Look up BPC amortized cost for this product (Phase C7)
                     var bpcCost = bpcGetCost(orderItem.product_type_id);
                     var bpcAmortizedCost = 0;
@@ -7687,10 +7683,6 @@
                         return oi.blueprint_type_id === apiItem.blueprint_type_id;
                     });
                     if (!orderItem) continue;
-                    // Preserve runs from API response (Bugfix: ensure runs survive async call)
-                    if (apiItem.runs != null) {
-                        orderItem.runs = apiItem.runs;
-                    }
                     // Look up BPC amortized cost for this product (Phase C7)
                     var bpcCost = bpcGetCost(orderItem.product_type_id);
                     var bpcAmortizedCost = 0;
