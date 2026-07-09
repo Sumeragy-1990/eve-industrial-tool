@@ -4070,6 +4070,7 @@
                 : (globalCfg.skill_adv_industry || 5),
             implant_slot7: oc.implant_slot7 || globalCfg.implant_slot7 || "",
             implant_slot8: oc.implant_slot8 || globalCfg.implant_slot8 || "",
+            tax_rate: oc.tax_rate != null ? oc.tax_rate : (globalCfg.tax_rate || 5.0),
         };
         // Build comma-separated rig string
         var rigsStr = [config.rig1, config.rig2, config.rig3].filter(function(r) { return r && r !== "none"; }).join(",") || "none";
@@ -4102,7 +4103,7 @@
                 facility_type: config.facility_type,
                 rigs: rigsStr,
                 security_class: config.security_class,
-                tax_rate: globalCfg.tax_rate || 5.0,
+                tax_rate: config.tax_rate,
                 system_cost_index: config.system_cost_index || null,
                 price_source: config.price_source,
             },
@@ -7715,8 +7716,10 @@
         // Populate station presets dropdown
         populatePresetDropdown();
 
-        // ── Character dropdown + skills ──
-        _loadCharactersIntoCfgSelect(c.character_id || 0);
+        // ── Character dropdown + skills (order.config first) ──
+        var order = _productionOrders[_activeOrderIndex];
+        var ocInit = (order && order.config) || {};
+        _loadCharactersIntoCfgSelect(ocInit.character_id || c.character_id || 0);
 
         // ── Implants ──
         setSel("bpCfgImplSlot7", c.implant_slot7 || "");
