@@ -1567,15 +1567,20 @@ async def calculate_build_cost(
     if rig_names and rig_names != ["none"]:
         rig_query = text("SELECT rig_id, material_bonus, time_bonus FROM rigs WHERE rig_id IN :ids")
         rig_rows = (await db.execute(rig_query, {"ids": tuple(rig_names)})).all()
-        rig_db = {r[0]: r[1] for r in rig_rows}
+        rig_mat_db = {r[0]: r[1] for r in rig_rows}  # rig_id -> material_bonus
+        rig_time_db = {r[0]: r[2] for r in rig_rows}  # rig_id -> time_bonus
     else:
-        rig_db = {}
+        rig_mat_db = {}
+        rig_time_db = {}
     rig_mat_bonus = sum(
-        rig_db.get(r.strip(), _RIG_FALLBACK.get(r.strip(), 0.0))
+        rig_mat_db.get(r.strip(), _RIG_FALLBACK.get(r.strip(), 0.0))
         for r in rig_names
     ) * _SEC_MULT.get(facility.security_class, 1.0)
     # Cap at reasonable max (3 rigs × T2 manufacturing = 7.2%)
     rig_mat_bonus = min(rig_mat_bonus, 0.10)
+    # Time bonus from rigs (not multiplied by security, as time rigs aren't security-affected)
+    rig_time_bonus = sum(rig_time_db.get(r.strip(), 0.0) for r in rig_names)
+    rig_time_bonus = min(rig_time_bonus, 0.10)
 
     for item in body.cart_items:
         mat_sql = text("""
@@ -1888,6 +1893,10 @@ async def calculate_build_cost(
         implants = body.implants or {}
         if implants.get("slot8") == "gnome":
             time_mult *= 0.99
+
+        # Rig-Zeitreduktion (aus Datenbank, z.B. Time Efficiency Rigs)
+        if rig_time_bonus > 0:
+            time_mult *= max(0.01, 1.0 - rig_time_bonus)
 
         # Implant-Materialreduktion (Slot 7 = Beancounter Industry -1% Material)
         implant_material_mult = 1.0

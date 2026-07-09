@@ -4840,6 +4840,43 @@
         }
         if (dateEl) dateEl.textContent = order.created_at ? new Date(order.created_at).toLocaleDateString() : "";
 
+        // ── Character + Skills Meta ──
+        const metaEl = document.getElementById("bpOrderDetailMeta");
+        if (metaEl && order.config) {
+            var oc = order.config;
+            var metaParts = [];
+            if (oc.character_name) {
+                metaParts.push('<i class="bi bi-person" style="color:#8ab4f8;"></i> ' + escHtml(oc.character_name));
+            }
+            if (oc.facility_type && oc.facility_type !== "npc_station") {
+                var facLabels = { raitaru: "Raitaru", sotyo: "Sotyo", azbel: "Azbel" };
+                metaParts.push('<i class="bi bi-building" style="color:#7c8faa;"></i> ' + (facLabels[oc.facility_type] || oc.facility_type));
+            }
+            if (oc.system_name) {
+                metaParts.push('<i class="bi bi-globe" style="color:#7c8faa;"></i> ' + escHtml(oc.system_name));
+            }
+            if (oc.skills && Array.isArray(oc.skills) && oc.skills.length > 0) {
+                var skillMap = {
+                    3380: "Ind", 3388: "Adv", 3398: "ALSC",
+                    11452: "ME", 11444: "ASE", 11450: "GSE", 11454: "CSE", 11448: "MSE"
+                };
+                var skillParts = [];
+                for (var si = 0; si < oc.skills.length; si++) {
+                    var s = oc.skills[si];
+                    var name = skillMap[s.skill_type_id];
+                    if (name) skillParts.push(name + s.skill_level);
+                }
+                if (skillParts.length > 0) {
+                    metaParts.push('<i class="bi bi-book" style="color:#7c8faa;"></i> ' + skillParts.join(" "));
+                }
+            }
+            metaEl.innerHTML = metaParts.length > 0
+                ? metaParts.join(' <span class="text-secondary">|</span> ')
+                : '<span class="text-secondary">No character configured</span>';
+        } else if (metaEl) {
+            metaEl.innerHTML = '<span class="text-secondary">No character configured</span>';
+        }
+
         // ── Items + Material Tree ──
         const itemsContainer = document.getElementById("bpOrderItemsContainer");
         if (!itemsContainer) return;
@@ -7490,36 +7527,26 @@
         const bar = document.getElementById("bpConfigBarBody");
         if (!bar) return;
         const c = loadConfig();
+        const order = _productionOrders[_activeOrderIndex];
+        const oc = (order && order.config) || {};
 
-        // Facility type icon + label
+        // Facility type icon + label (order config first)
         var facLabels = { npc_station: "NPC Station", raitaru: "Raitaru", sotyo: "Sotyo", azbel: "Azbel" };
         var facIcons = { npc_station: "🏪", raitaru: "🏭", sotyo: "🏭", azbel: "🏭" };
-        var facType = c.facility_type || "npc_station";
+        var facType = oc.facility_type || c.facility_type || "npc_station";
         var facLabel = facLabels[facType] || "NPC Station";
         var facIcon = facIcons[facType] || "🏪";
 
-        // Rig labels — full EVE names
-        const rigLabels = {
-            none: "\u2014", t1_small: "T1 Small Manuf.", t2_small: "T2 Small Manuf.",
-            t1_medium: "T1 Medium Manuf.", t2_medium: "T2 Medium Manuf.",
-            t1_large: "T1 Large Manuf.", t2_large: "T2 Large Manuf.",
-            t1_xl: "T1 XL Manuf.", t2_xl: "T2 XL Manuf.",
-            t1_component: "T1 Component", t2_component: "T2 Component",
-            t1_reaction: "T1 React.", t2_reaction: "T2 React."
-        };
-        var _rigParts2 = [c.rig1, c.rig2, c.rig3].filter(function(r) { return r && r !== "none"; });
-        var rigLabel = _rigParts2.length > 0
-            ? _rigParts2.map(function(r) { return rigLabels[r] || r; }).join(" + ")
-            : "No Rigs";
+        // Rig IDs (order config first, fallback global)
+        var rigIds = [oc.rig1 || c.rig1, oc.rig2 || c.rig2, oc.rig3 || c.rig3];
+        var _rigParts2 = rigIds.filter(function(r) { return r && r !== "none"; });
+        var rigLabel = _rigParts2.length > 0 ? _rigParts2.join(" + ") : "No Rigs";
 
         // Security class display
-        var secDisplay = c.security_class || "highsec";
+        var secDisplay = oc.security_class || c.security_class || "highsec";
         var secBadgeClass = secDisplay === "highsec" ? "bg-success" : (secDisplay === "lowsec" ? "bg-warning text-dark" : "bg-danger");
 
         // Character name (from order.config or global)
-        // Use the active order's config if available
-        var order = _productionOrders[_activeOrderIndex];
-        var oc = (order && order.config) || {};
         var charName = oc.character_name || c.character_name || "";
         var charId = oc.character_id || c.character_id || 0;
 
