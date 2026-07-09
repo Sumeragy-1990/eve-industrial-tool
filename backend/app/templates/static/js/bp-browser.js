@@ -7471,7 +7471,7 @@
             })(),
             system_name: getElVal("bpCfgSystemName") || "",
             system_id: null,
-            tax_rate: parseFloat(getElVal("bpCfgTax")) || 5.0,
+            tax_rate: (function(){ var t = parseFloat(getElVal("bpCfgTax")); return isNaN(t) ? 5.0 : t; })(),
             system_cost_index: (function(){
                 var manualRadio = document.getElementById("bpCfgIndexManual");
                 if (manualRadio && manualRadio.checked) {
@@ -7506,22 +7506,28 @@
         var presets = loadStationPresets();
         var p = presets[key];
         if (!p) return;
-        var c = loadConfig();
-        c.facility_type  = p.facility_type  || c.facility_type;
-        c.station_id     = p.station_id     != null ? p.station_id : c.station_id;
-        c.station_name   = p.station_name   || c.station_name;
-        c.system_id      = p.system_id      != null ? p.system_id : c.system_id;
-        c.system_name    = p.system_name    || c.system_name;
-        c.rigs           = p.rigs           || c.rigs;
-        c.rig1           = p.rig1           || "none";
-        c.rig2           = p.rig2           || "none";
-        c.rig3           = p.rig3           || "none";
-        c.tax_rate       = p.tax_rate       != null ? p.tax_rate : c.tax_rate;
-        c.system_cost_index = p.system_cost_index != null ? p.system_cost_index : c.system_cost_index;
-        saveConfig();
-        renderConfigBar();
-        // Aktive Order-Kosten neu berechnen falls vorhanden
-        if (typeof refreshOrderCosts === "function") refreshOrderCosts();
+        // Save to order.config if active
+        var order = _productionOrders[_activeOrderIndex];
+        var target = (order && order.config) || loadConfig();
+        var isOrderConfig = order && order.config;
+        target.facility_type  = p.facility_type  || target.facility_type;
+        target.station_id     = p.station_id     != null ? p.station_id : target.station_id;
+        target.system_name    = p.system_name    || target.system_name;
+        target.rig1           = p.rig1           || "none";
+        target.rig2           = p.rig2           || "none";
+        target.rig3           = p.rig3           || "none";
+        target.tax_rate       = p.tax_rate       != null ? p.tax_rate : target.tax_rate;
+        target.system_cost_index = p.system_cost_index != null ? p.system_cost_index : target.system_cost_index;
+        if (isOrderConfig) {
+            saveOrders();
+            _fetchBuildCostsForOrder(order).then(function() {
+                renderOrderDetail();
+                renderConfigBar();
+            });
+        } else {
+            saveConfig();
+            renderConfigBar();
+        }
     }
 
     function renderConfigBar() {
@@ -7612,6 +7618,8 @@
                 '<span title="Facility Type">' + facIcon + ' ' + facLabel + '</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
                 '<span title="Rigs"><i class="bi bi-tools"></i> ' + rigLabel + '</span>' +
+                '<span class="text-secondary mx-1">|</span>' +
+                '<span title="Tax Rate"><i class="bi bi-percent"></i> ' + (oc.tax_rate != null ? oc.tax_rate : c.tax_rate || 5.0).toFixed(2) + '%</span>' +
                 '<span class="text-secondary mx-1">|</span>' +
                 '<span title="Security Class"><span class="badge ' + secBadgeClass + '" style="font-size:0.6rem;">' + secDisplay + '</span></span>' +
             '</div>' +
@@ -7725,22 +7733,24 @@
         setSel("bpCfgImplSlot7", c.implant_slot7 || "");
         setSel("bpCfgImplSlot8", c.implant_slot8 || "");
 
-        // ── Facility + Rigs ──
-        setSel("bpCfgFacilityType", c.facility_type || "npc_station");
-        // Load rigs dynamically and set saved values
+        // ── Facility + Rigs (order.config first) ──
+        var ocFac = ocInit.facility_type || c.facility_type || "npc_station";
+        setSel("bpCfgFacilityType", ocFac);
         onCfgFacilityChange();
-        // Rig values need to be set AFTER async load, so set them with a small delay
+        // Rig values need to be set AFTER async load
         setTimeout(function() {
-            var rigIds = [c.rig1, c.rig2, c.rig3];
+            var rigIds = [ocInit.rig1 || c.rig1, ocInit.rig2 || c.rig2, ocInit.rig3 || c.rig3];
             for (var ri = 0; ri < 3; ri++) {
                 var el = document.getElementById("bpCfgRig" + (ri + 1));
                 if (el && rigIds[ri]) el.value = rigIds[ri];
             }
         }, 100);
+        // Tax from order.config first
+        var ocTax = ocInit.tax_rate != null ? ocInit.tax_rate : (c.tax_rate != null ? c.tax_rate : 5.0);
         var taxEl = document.getElementById("bpCfgTax");
         var taxValEl = document.getElementById("bpCfgTaxVal");
-        if (taxEl) { taxEl.value = c.tax_rate || 5.0; }
-        if (taxValEl) { taxValEl.textContent = (c.tax_rate || 5.0).toFixed(2) + "%"; }
+        if (taxEl) { taxEl.value = ocTax; }
+        if (taxValEl) { taxValEl.textContent = ocTax.toFixed(2) + "%"; }
 
         // Station selector — load options if not loaded
         var stationSel = document.getElementById("bpCfgStation");
