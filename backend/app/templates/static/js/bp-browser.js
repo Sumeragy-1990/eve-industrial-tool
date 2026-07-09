@@ -3869,12 +3869,15 @@
     function createOrder(name) {
         const config = loadBuildConfig();
         const orderNum = getNextOrderNumber();
-        const charName = config.character_name || "Nadja";
-        const defaultName = orderNum + "-Bestellung " + charName;
+        const charName = config.character_name || "";
+        const defaultName = orderNum + (charName ? "-Bestellung " + charName : "");
+        // Fallback: use character name from first available character
+        var _finalName = defaultName || orderNum + "-Bestellung";
+        // Set final name after we might try to look up characters — this is just the default
         const order = {
             id: Date.now() + Math.floor(Math.random() * 1000),
             order_number: orderNum,
-            name: name || defaultName,
+            name: name || _finalName,
             created_at: new Date().toISOString(),
             // Extended config
             facility_config: {
@@ -7184,7 +7187,7 @@
             implant_slot8: null,
             implant_slot10: null,
             // Character
-            character_name: "Nadja",
+            character_name: "",
             character_id: 0,
             characters: [],
             implants: {},
@@ -7731,81 +7734,70 @@
         setSel("bpCfgImplant8", c.implant_slot8 || "");
         setSel("bpCfgImplant10", c.implant_slot10 || "");
 
-        // Character
-        var charNameEl = document.getElementById("bpCfgCharName");
-        var charIdEl = document.getElementById("bpCfgCharId");
-        if (charNameEl) charNameEl.value = c.character_name || "Nadja";
-        if (charIdEl) charIdEl.value = c.character_id || 0;
-
         // Open modal
         var bsModal = new bootstrap.Modal(modal);
         bsModal.show();
     }
 
-    /** Apply the modal values and save config */
+    /** Apply the modal values and save to the active order's config (or global fallback) */
     function applyConfigPanel() {
-        var c = loadConfig();
-        c.facility_type = getSel("bpCfgFacilityType") || "npc_station";
-        c.rig1 = getSel("bpCfgRig1") || "none";
-        c.rig2 = getSel("bpCfgRig2") || "none";
-        c.rig3 = getSel("bpCfgRig3") || "none";
-        // Build comma-separated rigs string for backend compatibility
-        var _rigParts = [c.rig1, c.rig2, c.rig3].filter(function(r) { return r && r !== "none"; });
-        c.rigs = _rigParts.length > 0 ? _rigParts.join(",") : "none";
-        c.tax_rate = parseFloat(getEl("bpCfgTax") || 5.0);
-        c.system_name = getElVal("bpCfgSystemName") || "";
-        c.character_name = getElVal("bpCfgCharName") || "Nadja";
-        c.character_id = parseInt(getElVal("bpCfgCharId")) || 0;
+        var modalEl = document.getElementById("bpConfigModal");
+        var order = _productionOrders[_activeOrderIndex];
+        var oc = (order && order.config) ? order.config : {};
+        var charSel = document.getElementById("bpCfgCharacter");
 
-        // Station
-        c.station_id = getSel("bpCfgStation") || null;
-        var stationSel = document.getElementById("bpCfgStation");
-        if (stationSel && stationSel.selectedIndex >= 0) {
-            var opt = stationSel.options[stationSel.selectedIndex];
-            c.station_name = opt ? opt.textContent : "";
-        }
-
-        // System Cost Index — auto or manual
-        var autoMode = document.getElementById("bpCfgIndexAuto") && document.getElementById("bpCfgIndexAuto").checked;
-        if (autoMode) {
-            // Auto: try lookup, fallback to manual value
+        oc.facility_type = getSel("bpCfgFacilityType") || "npc_station";
+        oc.rig1 = getSel("bpCfgRig1") || "none";
+        oc.rig2 = getSel("bpCfgRig2") || "none";
+        oc.rig3 = getSel("bpCfgRig3") || "none";
+        oc.system_name = getElVal("bpCfgSystemName") || "";
+        oc.system_cost_index = (function() {
             var idxResultEl = document.getElementById("bpCfgIndexResult");
-            if (idxResultEl && idxResultEl.textContent !== "—" && idxResultEl.textContent !== "Looking up...") {
-                c.system_cost_index = parseFloat(idxResultEl.textContent) || null;
-            } else {
-                // Fallback to manual value
-                c.system_cost_index = parseFloat(getElVal("bpCfgIndexManualVal")) || null;
+            if (idxResultEl && idxResultEl.textContent !== "—" && idxResultEl.textContent !== "Looking up..." && idxResultEl.textContent !== "Error") {
+                return parseFloat(idxResultEl.textContent) / 100 || null;
             }
+            var manualVal = parseFloat(getElVal("bpCfgIndexManualVal") || "5.0");
+            return manualVal / 100;
+        })();
+        oc.security_class = (function() {
+            var secBadge = document.getElementById("bpCfgSecClass");
+            if (secBadge && secBadge.style.display !== "none" && secBadge.textContent !== "—") return secBadge.textContent;
+            return getSel("bpCfgSecClassManual") || "highsec";
+        })();
+        oc.character_id = charSel ? parseInt(charSel.value) || 0 : 0;
+        oc.character_name = charSel && charSel.selectedOptions && charSel.selectedOptions[0]
+            ? charSel.selectedOptions[0].textContent : "";
+        oc.implant_slot7 = getSel("bpCfgImplSlot7") || "";
+        oc.implant_slot8 = getSel("bpCfgImplSlot8") || "";
+        oc.skills = modalEl ? modalEl._lastSkills || [] : [];
+
+        if (order) {
+            order.config = oc;
+            saveOrders();
+            // Refresh build costs with new config
+            _fetchBuildCostsForOrder(order).then(function() {
+                renderOrderDetail();
+                renderConfigBar();
+            });
         } else {
-            c.system_cost_index = parseFloat(getElVal("bpCfgIndexManualVal")) || null;
+            // Fallback: save to global config
+            var c = loadConfig();
+            c.character_id = oc.character_id;
+            c.character_name = oc.character_name;
+            saveConfig();
+            renderConfigBar();
         }
 
-        // Price Source
-        c.price_source = document.getElementById("bpCfgPriceBuy") && document.getElementById("bpCfgPriceBuy").checked ? "jita_buy" : "jita_sell";
-
-        // Skills
-        c.skill_industry = parseInt(getSel("bpCfgSkillInd")) || 5;
-        c.skill_adv_industry = parseInt(getSel("bpCfgSkillAdvInd")) || 5;
-        c.skill_supply_chain = parseInt(getSel("bpCfgSkillSup")) || 4;
-        c.skill_mass_production = parseInt(getSel("bpCfgSkillMP")) || 5;
-        c.skill_adv_mass_production = parseInt(getSel("bpCfgSkillAMP")) || 4;
-        c.skill_capital_ship = parseInt(getSel("bpCfgSkillCap")) || 3;
-
-        // Implants
-        c.implant_slot7 = getSel("bpCfgImplant7") || null;
-        c.implant_slot8 = getSel("bpCfgImplant8") || null;
-        c.implant_slot10 = getSel("bpCfgImplant10") || null;
-
-        saveConfig();
+        // Build comma-separated rigs string for backward compat
+        var _rigParts2 = [oc.rig1, oc.rig2, oc.rig3].filter(function(r) { return r && r !== "none"; });
+        oc.rigs = _rigParts2.length > 0 ? _rigParts2.join(",") : "none";
 
         // Close the modal
-        var modalEl = document.getElementById("bpConfigModal");
-        if (modalEl) {
-            var bsModal = bootstrap.Modal.getInstance(modalEl);
-            if (bsModal) bsModal.hide();
+        var modalEl2 = document.getElementById("bpConfigModal");
+        if (modalEl2) {
+            var bsModal2 = bootstrap.Modal.getInstance(modalEl2);
+            if (bsModal2) bsModal2.hide();
         }
-
-        // Re-render config bar immediately; debounce the order recalc
         renderConfigBar();
         scheduleRecalcOrder();
     }
