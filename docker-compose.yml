@@ -38,9 +38,27 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      # Mount SDE cache directory for faster re-imports
-      - eve-sde-cache:/app/sde_cache
+
+  # ── Backend Dev (Test-Build auf Port 8083) ─────────────────────
+  backend-dev:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eve-backend-dev
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://eve:${DB_PASSWORD:-eve_password}@db:5432/eve_industrial"
+      EVE_CLIENT_ID: "${EVE_CLIENT_ID}"
+      EVE_SECRET_KEY: "${EVE_SECRET_KEY}"
+      EVE_CALLBACK_URL: "${EVE_CALLBACK_URL:-http://192.168.178.24:8083/auth/callback}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:-change-me-to-a-random-secret}"
+      EVE_USERAGENT: "${EVE_USERAGENT:-EVEIndustrialTool-Dev/1.0}"
+      DEBUG: "true"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   eve-db-data:
