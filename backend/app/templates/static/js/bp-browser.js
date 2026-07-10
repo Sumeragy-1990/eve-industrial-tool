@@ -2829,6 +2829,7 @@
     var _inventionCharacterId = null;
     var _inventionCharSkills = {};
     var _inventionSkillOverrides = {}; // {skill_type_id: level} for manual override (0-5)
+    var _lastFetchedIndices = null; // last system cost indices from ESI (all 6 activities)
     var _lastSyncAttempt = 0; // timestamp to prevent ESI 429 spam
 
     /** Render the config bar into the fixed bpInvConfigBar element (always visible) */
@@ -7967,6 +7968,25 @@
         } else {
             saveConfig();
             renderConfigBar();
+            // Recalc active order with new global config
+            var activeOrder = _productionOrders[_activeOrderIndex];
+            if (activeOrder && activeOrder.items && activeOrder.items.length > 0) {
+                _fetchBuildCostsForOrder(activeOrder).then(function() {
+                    renderOrderDetail();
+                });
+            }
+        }
+        // Always sync invention config bar + cost index
+        renderInvConfigBar();
+        if (p.invention_cost_index != null) {
+            _inventionCostIndex = p.invention_cost_index;
+        } else if (p.indices && p.indices.invention != null) {
+            _inventionCostIndex = p.indices.invention;
+        } else if (p.system_cost_index != null) {
+            _inventionCostIndex = p.system_cost_index;
+        }
+        if (_inventionData && _inventionData.has_invention) {
+            renderInvention(_inventionData, _inventionData.blueprint.type_id);
         }
     }
 
@@ -8166,6 +8186,8 @@
         var modal = document.getElementById("bpConfigModal");
         if (!modal) return;
 
+        // Reset cached indices (will be repopulated by auto-lookup or user search)
+        _lastFetchedIndices = null;
         // ── Character dropdown + skills (order.config first) ──
         var order = _productionOrders[_activeOrderIndex];
         var ocInit = (order && order.config) || {};
@@ -8208,6 +8230,10 @@
         var sysNameEl = document.getElementById("bpCfgSystemName");
         var ocSysName = ocInit.system_name || c.system_name || "";
         if (sysNameEl) sysNameEl.value = ocSysName;
+        // Auto-lookup saved system to populate all 6 indices table
+        if (ocSysName) {
+            selectSolarSystem("cfg", ocSysName);
+        }
         var ocSci = ocInit.system_cost_index != null ? ocInit.system_cost_index : c.system_cost_index;
         var idxResultEl = document.getElementById("bpCfgIndexResult");
         if (idxResultEl) {
@@ -8272,17 +8298,9 @@
             return manualVal / 100;
         })();
         // Store ALL activity indices from the table for modular reuse
-        oc.indices = (function() {
-            var acts = ["manufacturing", "research_material", "research_time", "copying", "invention", "reactions"];
-            var idx = {};
-            for (var ai = 0; ai < acts.length; ai++) {
-                var pct = _getIndexFromTable("cfg", acts[ai]);
-                idx[acts[ai]] = pct != null ? pct / 100 : null;
-            }
-            return idx;
-        })();
-        // Specific convenience fields for different features
-        oc.invention_cost_index = oc.indices ? oc.indices.invention : null;
+        // Use _lastFetchedIndices from the last system lookup (reliable, not DOM-dependent)
+        oc.indices = _lastFetchedIndices ? JSON.parse(JSON.stringify(_lastFetchedIndices)) : null;
+        oc.invention_cost_index = oc.indices && oc.indices.invention != null ? oc.indices.invention : null;
         oc.security_class = getSel("bpCfgSecClassManual") || "highsec";
         oc.character_id = charSel ? parseInt(charSel.value) || 0 : 0;
         oc.character_name = charSel && charSel.selectedOptions && charSel.selectedOptions[0]
@@ -8360,6 +8378,17 @@
         renderConfigBar();
         scheduleRecalcOrder();
 
+        // Sync invention cost index from saved config (prefer order config)
+        var _orderAfter = _productionOrders[_activeOrderIndex];
+        var _orderCfgAfter = (_orderAfter && _orderAfter.config) || null;
+        var _cfgAfter = _orderCfgAfter || loadConfig();
+        if (_cfgAfter.invention_cost_index != null) {
+            _inventionCostIndex = _cfgAfter.invention_cost_index;
+        } else if (_cfgAfter.indices && _cfgAfter.indices.invention != null) {
+            _inventionCostIndex = _cfgAfter.indices.invention;
+        } else if (_cfgAfter.system_cost_index != null) {
+            _inventionCostIndex = _cfgAfter.system_cost_index;
+        }
         // Always refresh the invention config bar (even if no BP loaded)
         renderInvConfigBar();
     }
@@ -8532,6 +8561,8 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data && data.indices) {
+                // Store for applyConfigPanel to read (avoids DOM race condition)
+                _lastFetchedIndices = data.indices;
                 // Show primary (manufacturing) in the summary span
                 var mfg = data.indices.manufacturing;
                 if (mfg != null) {
