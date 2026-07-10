@@ -7917,7 +7917,25 @@
             var parent = inputEl ? inputEl.closest(".position-relative") : null;
             resultsEl = parent ? parent.querySelector(".bp-autocomplete-results") : null;
         }
-        if (!inputEl || !resultsEl) { console.warn("[BP] searchSolarSystems: input/results not found, prefix:", typeof inputOrPrefix); return; }
+        if (!inputEl) { console.warn("[BP] searchSolarSystems: input not found"); return; }
+        // Create floating results container if not exists
+        var floatingId = "bpFloatingResults_" + (typeof inputOrPrefix === "string" ? inputOrPrefix : "sys");
+        var resultsEl = document.getElementById(floatingId);
+        if (!resultsEl) {
+            resultsEl = document.createElement("div");
+            resultsEl.id = floatingId;
+            resultsEl.className = "bp-autocomplete-results";
+            resultsEl.style.position = "fixed";
+            resultsEl.style.zIndex = "99999";
+            resultsEl.style.display = "none";
+            resultsEl.style.background = "#1a2330";
+            resultsEl.style.border = "1px solid #2a3a4a";
+            resultsEl.style.borderRadius = "4px";
+            resultsEl.style.boxShadow = "0 4px 12px rgba(0,0,0,0.5)";
+            resultsEl.style.maxHeight = "220px";
+            resultsEl.style.overflowY = "auto";
+            document.body.appendChild(resultsEl);
+        }
         var query = inputEl.value.trim();
         if (query.length < 1) {
             resultsEl.style.display = "none";
@@ -7948,11 +7966,11 @@
                     ' <span class="sys-region">' + escHtml(s.region_name || "") + '</span>' +
                     '</button>';
             }
-            resultsEl.style.position = "fixed";
-            resultsEl.style.zIndex = "99999";
             resultsEl.innerHTML = html;
             resultsEl.style.display = "block";
-            // Position below the input
+            // Position below the input using fixed positioning
+            resultsEl.style.position = "fixed";
+            resultsEl.style.zIndex = "99999";
             if (inputEl) {
                 var rect = inputEl.getBoundingClientRect();
                 resultsEl.style.top = (rect.bottom + 2) + "px";
@@ -7973,6 +7991,9 @@
         var idxSuffix = (prefixType === "cfg") ? "IndexResult" : "IdxResult";
         var idxResultEl = document.getElementById("bp" + prefixType.toUpperCase() + idxSuffix);
         if (inputEl) inputEl.value = systemName;
+        // Also hide floating results if present
+        var floatingResult = document.getElementById("bpFloatingResults_" + prefixType);
+        if (floatingResult) floatingResult.style.display = "none";
         if (resultsEl) resultsEl.style.display = "none";
         if (!idxResultEl) return;
         idxResultEl.textContent = "Looking up...";
