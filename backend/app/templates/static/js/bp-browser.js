@@ -7799,13 +7799,17 @@
         }
         if (!presets) {
             presets = getDefaultStationPresets();
+            // Mark defaults as undeletable so _deleted list starts clean
+            if (!presets._deleted) presets._deleted = [];
             saveStationPresets(presets);
         } else {
-            // Merge in any missing defaults
+            // Track deleted presets
+            if (!presets._deleted) presets._deleted = [];
+            // Merge in missing defaults (skip ones that were explicitly deleted)
             var defaults = getDefaultStationPresets();
             var changed = false;
             for (var key in defaults) {
-                if (!presets[key]) {
+                if (!presets[key] && presets._deleted.indexOf(key) === -1) {
                     presets[key] = defaults[key];
                     changed = true;
                 }
@@ -7937,6 +7941,8 @@
         var key = barSelect.value;
         if (!confirm('Delete preset "' + key + '"?')) return;
         var presets = loadStationPresets();
+        if (!presets._deleted) presets._deleted = [];
+        presets._deleted.push(key); // Prevent default preset from re-appearing
         delete presets[key];
         saveStationPresets(presets);
         // Repopulate both dropdowns
@@ -7950,6 +7956,8 @@
         if (!sel || !sel.value) { alert("Select a preset to delete."); return; }
         if (!confirm('Delete preset "' + sel.value + '"?')) return;
         var presets = loadStationPresets();
+        if (!presets._deleted) presets._deleted = [];
+        presets._deleted.push(sel.value); // Prevent default preset from re-appearing
         delete presets[sel.value];
         saveStationPresets(presets);
         populatePresetDropdown();
