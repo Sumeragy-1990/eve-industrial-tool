@@ -63,27 +63,17 @@ Wenn man im Order-Tab die Runs eines Items ändert, wird nach dem API-Call der a
 
 ## Bug 6: System Cost Index — Alle 5 Aktivitäten anzeigen
 
-**Status**: 🔧 Offen
+**Status**: ✅ Gefixt + deployed
 
-### Problem
-Die System-Suche zeigt nur den Manufacturing Cost Index an. Es gibt aber 5 Aktivitäten:
-- Manufacturing
-- ME Research (Material Efficiency)
-- TE Research (Time Efficiency)
-- Copying
-- Invention
-
-Jede hat ihren eigenen Cost Index pro System.
-
-### Gewünschte Lösung
-1. **API erweitern**: `GET /api/industry/system-cost-index` sollte alle 5 Indizes zurückgeben können (oder 5 Anfragen parallel)
-2. **Frontend**: Im Config-Modal + Station-Selector alle 5 Indizes anzeigen
-3. **Invention-Tab**: Kann dieselbe System-Suche + Index-Anzeige wiederverwenden (statt separater Implementation)
-
-### Vorteile
-- Einheitliche System-Suche für Config + Invention
-- User sieht auf einen Blick alle relevanten Indizes
-- Kein doppelter Code
+### Lösung
+- Neue DB-Tabelle `system_cost_indices` (solar_system_id, system_name, region, security + 6 Indizes)
+- ESI-Sync via `POST /api/industry/sync-cost-indices` (5.485 Systeme gecached)
+- API: `GET /api/industry/system-cost-index?system_name=X` gibt jetzt alle 6 Indizes zurück
+- `GET /api/industry/systems-search` mit optionalem `include_indices=true`
+- Config Modal: Tabelle mit allen 6 Aktivitäten statt Single-Index
+- Station Selector: Gleiche Tabelle
+- Invention Tab: Inline System-Suche + Indizes-Tabelle, nutzt `invention`-Index
+- Alle Indizes werden in `order.config.indices` gespeichert
 
 ---
 
@@ -97,10 +87,12 @@ Wurde durch die dynamische Rig-Datenbank (96 Rigs) abgelöst.
 
 ## Bug 4.1: Invention Character Wechsel
 
-**Status**: ⏳ Im Workspace (gestasht)
+**Status**: ✅ Gefixt
 
-### Problem
-Beim Character-Wechsel im Invention-Tab blieb die Success-Chance gleich.
+### Lösung
+- Auto-Sync der Skills beim Character-Wechsel (falls leer, wird automatisch von ESI geholt)
+- Besseres UI-Feedback via `showInventionSyncMsg()`
+- Inline System-Suche im Invention-Tab (keine separate Modal mehr)
 
 ---
 
@@ -115,10 +107,24 @@ Im Invention-Tab gab es nur manuelles Zahlen-Input. Soll durch Bug 6 (einheitlic
 
 ## Bug 5: Copy Materials Button
 
-**Status**: ⏳ Im Workspace (gestasht)
+**Status**: ✅ Gefixt
+
+### Lösung
+Button "Copy Materials" im Campaign-Detail hinzugefügt. Kopiert Materialliste als TSV (Material\tQuantity\tTotal ISK) in die Zwischenablage.
+
+---
+
+## Bug 7: Implants werden in Station Config nicht gespeichert
+
+**Status**: 🔧 Offen
 
 ### Problem
-Im Campaign-Detail fehlte ein Button zum Kopieren der Materialien.
+Nach dem Setzen von Implantaten (Slot 7 + 8) im Config Modal oder Station Selector werden diese nach Apply & Save nicht persistiert. Beim erneuten Öffnen sind die Werte zurückgesetzt.
+
+### Betroffene Stellen
+- Config Modal (`bpCfgImplSlot7` / `bpCfgImplSlot8`)
+- Station Selector Modal (`bpSelImplSlot7` / `bpSelImplSlot8`)
+- `applyConfigPanel()` und `confirmStationSelector()`
 
 ---
 

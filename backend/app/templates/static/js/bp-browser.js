@@ -425,6 +425,18 @@
 
             // BPC Stock tab: re-render list when tab is shown (first load populates)
             // Bootstrap 5 fires shown.bs.tab on the triggering nav-link, not the pane
+            // Invention tab: render config bar when tab is shown
+            try {
+                var invNavBtn = document.querySelector('[data-bs-target="#bpTabInvention"]');
+                if (invNavBtn) {
+                    invNavBtn.addEventListener("shown.bs.tab", function() {
+                        renderInvConfigBar();
+                    });
+                }
+            } catch (e) {
+                console.warn("[BP] inv tab event error:", e.message);
+            }
+
             try {
                 var bpcNavBtn = document.querySelector('[data-bs-target="#bpTabBpcStock"]');
                 if (bpcNavBtn) {
@@ -2461,38 +2473,95 @@
                 _walkTreeNodes(data.categories);
             }
 
-            if (t1Products.length === 0) {
+            // Always try T2→T1 reverse lookup for search terms that might be T2 items
+            var t2Resolved = [];
+            try {
+                var invSearch = await apiGet("/api/invention/blueprints/search?q=" + encodeURIComponent(query) + "&limit=10");
+                if (invSearch && invSearch.blueprints) {
+                    for (var ii = 0; ii < invSearch.blueprints.length; ii++) {
+                        var bp = invSearch.blueprints[ii];
+                        if (bp.t2_resolved) {
+                            t2Resolved.push(bp);
+                        }
+                    }
+                }
+            } catch (e2) {
+                console.warn("T2 fallback search failed:", e2);
+            }
+
+            if (t1Products.length === 0 && t2Resolved.length === 0) {
                 statusEl.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> No T1 blueprints found matching "' + escHtml(query) + '".</span>';
                 resultsEl.innerHTML = '<div class="text-center text-secondary py-3"><small>Try a different search term.</small></div>';
                 return;
             }
 
-            statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> ' + t1Products.length + ' T1 blueprint(s) found.</span>';
-
-            // Render clickable list
-            var html = '<div class="bp-detail-section"><div class="bp-detail-title">T1 Blueprints</div>';
-            html += '<div style="max-height:300px;overflow-y:auto;">';
-            html += '<div class="list-group list-group-flush" style="font-size:0.72rem;">';
-            for (var pi = 0; pi < t1Products.length; pi++) {
-                var prod = t1Products[pi];
-                html += '<button class="list-group-item list-group-item-action py-1 px-2" ' +
-                    'onclick="BP.loadInventionStandalone(' + prod.blueprint_type_id + ', \'' + escJs(prod.product_name) + '\')" ' +
-                    'style="cursor:pointer;border:1px solid rgba(255,255,255,0.05);text-align:left;">';
-                html += '<span class="text-info">' + escHtml(prod.product_name) + '</span>';
-                html += ' <small class="text-muted">(BP ' + prod.blueprint_type_id + ')</small>';
-                if (prod.bpo_count > 0) {
-                    html += ' <span class="badge bg-info ms-1" style="font-size:0.55rem;">' + prod.bpo_count + ' BPO</span>';
+            // Render normal T1 results
+            if (t1Products.length > 0) {
+                statusEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> ' + t1Products.length + ' T1 blueprint(s) found.</span>';
+                var html = '<div class="bp-detail-section"><div class="bp-detail-title">T1 Blueprints</div>';
+                html += '<div style="max-height:300px;overflow-y:auto;">';
+                html += '<div class="list-group list-group-flush" style="font-size:0.72rem;">';
+                for (var pi = 0; pi < t1Products.length; pi++) {
+                    var prod = t1Products[pi];
+                    html += '<button class="list-group-item list-group-item-action py-1 px-2" ' +
+                        'onclick="BP.loadInventionStandalone(' + prod.blueprint_type_id + ', \'' + escJs(prod.product_name) + '\')" ' +
+                        'style="cursor:pointer;border:1px solid rgba(255,255,255,0.05);text-align:left;">';
+                    html += '<span class="text-info">' + escHtml(prod.product_name) + '</span>';
+                    html += ' <small class="text-muted">(BP ' + prod.blueprint_type_id + ')</small>';
+                    if (prod.bpo_count > 0) {
+                        html += ' <span class="badge bg-info ms-1" style="font-size:0.55rem;">' + prod.bpo_count + ' BPO</span>';
+                    }
+                    if (prod.bpc_count > 0) {
+                        html += ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.55rem;">' + prod.bpc_count + ' BPC</span>';
+                    }
+                    if (prod.meta_group_name) {
+                        html += ' <small class="text-secondary">[' + escHtml(prod.meta_group_name) + ']</small>';
+                    }
+                    html += '</button>';
                 }
-                if (prod.bpc_count > 0) {
-                    html += ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.55rem;">' + prod.bpc_count + ' BPC</span>';
+                html += '</div></div></div>';
+                // Add T2-resolved section if available
+                if (t2Resolved.length > 0) {
+                    html += '<div class="bp-detail-section mt-2"><div class="bp-detail-title" style="color:#e0a800;">T2→T1 (Invention-Quelle)</div>';
+                    html += '<div style="max-height:200px;overflow-y:auto;">';
+                    html += '<div class="list-group list-group-flush" style="font-size:0.72rem;">';
+                    for (var ri = 0; ri < t2Resolved.length; ri++) {
+                        var r = t2Resolved[ri];
+                        html += '<button class="list-group-item list-group-item-action py-1 px-2" ' +
+                            'onclick="BP.loadInventionStandalone(' + r.type_id + ', \'' + escJs(r.name) + '\')" ' +
+                            'style="cursor:pointer;border:1px solid rgba(255,255,255,0.05);text-align:left;">';
+                        html += '<span class="text-info">' + escHtml(r.name) + '</span>';
+                        html += ' <small class="text-muted">→ ' + escHtml(r.t2_item_name) + '</small>';
+                        html += ' <span class="badge bg-success ms-1" style="font-size:0.55rem;">Invention</span>';
+                        html += '</button>';
+                    }
+                    html += '</div></div></div>';
                 }
-                if (prod.meta_group_name) {
-                    html += ' <small class="text-secondary">[' + escHtml(prod.meta_group_name) + ']</small>';
-                }
-                html += '</button>';
+                resultsEl.innerHTML = html;
+                return;
             }
-            html += '</div></div></div>';
-            resultsEl.innerHTML = html;
+
+            // Only T2 resolved (no direct T1 hits)
+            if (t2Resolved.length > 0) {
+                statusEl.innerHTML = '<span class="text-info"><i class="bi bi-arrow-right"></i> T2 item erkannt! T1 Blueprint für Invention:</span>';
+                var html = '<div class="bp-detail-section"><div class="bp-detail-title">T1 Blueprint (via T2-Suche)</div>';
+                html += '<div style="max-height:300px;overflow-y:auto;">';
+                html += '<div class="list-group list-group-flush" style="font-size:0.72rem;">';
+                for (var ri = 0; ri < t2Resolved.length; ri++) {
+                    var r = t2Resolved[ri];
+                    html += '<button class="list-group-item list-group-item-action py-1 px-2" ' +
+                        'onclick="BP.loadInventionStandalone(' + r.type_id + ', \'' + escJs(r.name) + '\')" ' +
+                        'style="cursor:pointer;border:1px solid rgba(255,255,255,0.05);text-align:left;">';
+                    html += '<span class="text-info">' + escHtml(r.name) + '</span>';
+                    html += ' <small class="text-muted">→ ' + escHtml(r.t2_item_name) + '</small>';
+                    html += ' <span class="badge bg-success ms-1" style="font-size:0.55rem;">Invention</span>';
+                    html += '</button>';
+                }
+                html += '</div></div></div>';
+                resultsEl.innerHTML = html;
+                return;
+            }
+
         } catch (e) {
             console.warn("T1 search failed:", e);
             statusEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> Search failed: ' + escHtml(e.message) + '</span>';
@@ -2604,7 +2673,12 @@
                 html += '<label class="list-group-item list-group-item-action py-1 px-2' + activeClass + '" style="cursor:pointer;border:1px solid rgba(255,255,255,0.05);">';
                 html += '<input type="radio" name="bpInvDecryptor" value="' + d.type_id + '"' + checkedAttr + ' onchange="BP.onDecryptorChange(' + d.type_id + ')" style="margin-right:6px;">';
                 html += '<span class="text-info">' + escHtml(d.name) + '</span>';
-                html += ' <span class="text-muted">Prob:×' + d.prob.toFixed(1) + ' Runs:×' + d.runs + ' ME:' + d.me + ' TE:' + d.te + '</span>';
+                // Display prob as percentage change: +10% (increase) or -60% (decrease)
+                var probPct = ((d.prob - 1) * 100).toFixed(0);
+                var probLabel = probPct > 0 ? '<span class="text-success">+' + probPct + '%</span>' :
+                               probPct < 0 ? '<span class="text-warning">' + probPct + '%</span>' :
+                               '<span class="text-muted">±0%</span>';
+                html += ' <span class="text-muted">Prob:</span>' + probLabel + ' <span class="text-muted">Runs:×' + d.runs + ' ME:' + d.me + ' TE:' + d.te + '</span>';
                 html += ' <span class="float-end" style="font-size:0.65rem;">';
                 html += '<span class="text-success me-1" title="Buy">B:' + buyPart + '</span>';
                 html += '<span class="text-warning me-1" title="Sell">S:' + sellPart + '</span>';
@@ -2622,24 +2696,12 @@
         }
         html += '</div>';
 
-        // ── Section 4: Installation Cost ─────────────────────────────
+        // ── Section 4: Install Fee Display ──────────────────────────
         html += '<div class="bp-detail-section mt-3">';
-        html += '<div class="bp-detail-title">Installation & Cost Index</div>';
-        html += '<div class="row g-2" style="font-size:0.72rem;">';
-        html += '<div class="col-8"><label class="form-label mb-0 text-muted">System Cost Index</label>';
-        html += '<div class="input-group input-group-sm">';
-        html += '<input type="number" class="form-control form-control-sm" id="bpInvCostIndex" value="' + (_inventionCostIndex || 0.01) + '" min="0" max="1" step="0.01" onchange="BP.onInventionParamChange()">';
-        html += '<button class="btn btn-outline-secondary btn-sm" type="button" onclick="BP.showInventionStationSelector()" title="Select station to look up cost index"><i class="bi bi-search"></i></button>';
-        html += '</div></div>';
-        html += '<div class="col-4"><label class="form-label mb-0 text-muted">Custom Install Fee</label>';
-        html += '<input type="number" class="form-control form-control-sm" id="bpInvCustomFee"' +
-            ' placeholder="auto" min="0" step="1000"' +
-            ' value="' + (_inventionCustomInstallFee != null ? Math.round(_inventionCustomInstallFee) : '') + '"' +
-            ' onchange="BP.onInventionParamChange()" style="font-size:0.7rem;" title="Leer = automatisch berechnet"></div>';
+        html += '<div class="bp-detail-title">Installation Cost</div>';
+        html += '<div class="d-flex align-items-center gap-2" style="font-size:0.82rem;">';
+        html += '<span class="text-muted">Install fee: <span class="text-info fw-bold" id="bpInvInstallFee">' + formatNumber(_calcInvInstallFee(_inventionCostIndex)) + ' ISK</span></span>';
         html += '</div>';
-        var _autoInstallFee = 250000 * (1 + (_inventionCostIndex || 0.01) * 100);
-        var installFee = (_inventionCustomInstallFee != null) ? _inventionCustomInstallFee : _autoInstallFee;
-        html += '<div class="mt-1 text-end small text-muted">Estimated install fee: <span class="text-info" id="bpInvInstallFee">' + formatNumber(installFee) + ' ISK</span></div>';
         html += '</div>';
 
         // ── Section 5: Character Selector ──────────────────────────────
@@ -2674,18 +2736,47 @@
         html += '</div>';
         html += '</div>';
 
-        // ── Section 7: Required Skills ───────────────────────────────
+        // ── Section 7: Required Skills + Override ────────────────────
         if (data.skills && data.skills.length > 0) {
             html += '<div class="bp-detail-section mt-3">';
-            html += '<div class="bp-detail-title">Required Skills</div>';
-            html += '<div style="font-size:0.72rem;">';
+            html += '<div class="bp-detail-title">Skills & Probability Impact</div>';
+            html += '<div style="font-size:0.68rem;">';
+            html += '<div class="d-flex align-items-center gap-2 mb-1 text-secondary" style="font-size:0.62rem;">';
+            html += '<span style="width:28px;">Lvl</span>';
+            html += '<span style="width:120px;">Skill</span>';
+            html += '<span style="width:40px;">Char</span>';
+            html += '<span style="width:60px;">Override</span>';
+            html += '<span style="width:60px;">×Mult</span>';
+            html += '<span style="width:70px;">Gewinn/Lvl</span>';
+            html += '</div>';
             for (var s = 0; s < data.skills.length; s++) {
                 var sk = data.skills[s];
-                html += '<div class="d-flex justify-content-between py-1 border-bottom border-secondary">';
-                html += '<span>' + escHtml(sk.name) + '</span>';
-                html += '<span class="text-info">Level ' + sk.level + '</span>';
+                var tid = sk.skill_type_id;
+                var charLevel = _inventionCharSkills[tid] || 0;
+                var overrideLevel = (_inventionSkillOverrides[tid] != null) ? _inventionSkillOverrides[tid] : charLevel;
+                var multiplier = 1 + overrideLevel * 0.02;
+                // Gain per additional level
+                var gainPerLvl = (1 + (overrideLevel + 1) * 0.02) / (1 + overrideLevel * 0.02) - 1;
+                html += '<div class="d-flex align-items-center gap-2 py-1 border-bottom border-secondary" style="line-height:1.4;">';
+                html += '<span style="width:28px;" class="text-muted">' + sk.level + '</span>';
+                html += '<span style="width:120px;" title="' + escHtml(sk.name) + '">' + escHtml(sk.name.substring(0, 16)) + '</span>';
+                html += '<span style="width:40px;" class="' + (charLevel > 0 ? 'text-info' : 'text-danger') + '">' + charLevel + '</span>';
+                html += '<span style="width:60px;">';
+                html += '<select onchange="BP.onInvSkillOverrideChange(' + tid + ', this.value)" style="width:50px;font-size:0.62rem;padding:0 2px;background:transparent;color:#e0e0e0;border:1px solid #2a3a4a;border-radius:2px;">';
+                for (var si = 0; si <= 5; si++) {
+                    var sel = (si === overrideLevel) ? ' selected' : '';
+                    html += '<option value="' + si + '"' + sel + '>' + si + '</option>';
+                }
+                html += '</select>';
+                html += '</span>';
+                html += '<span style="width:60px;" class="' + (multiplier > 1.0 ? 'text-success' : 'text-muted') + '">×' + multiplier.toFixed(3) + '</span>';
+                html += '<span style="width:70px;" class="' + (gainPerLvl > 0.005 ? 'text-success' : (gainPerLvl > 0 ? 'text-warning' : 'text-muted')) + '">+' + (gainPerLvl * 100).toFixed(1) + '%</span>';
                 html += '</div>';
             }
+            // Reset button
+            html += '<div class="mt-1">';
+            html += '<button class="btn btn-sm btn-outline-secondary" onclick="BP.resetInvSkillOverrides()" style="font-size:0.62rem;"><i class="bi bi-arrow-counterclockwise"></i> Reset to Character</button>';
+            html += '</div>';
             html += '</div></div>';
         }
 
@@ -2695,6 +2786,28 @@
         if (_inventionCharacterId && (!_inventionCharSkills || Object.keys(_inventionCharSkills).length === 0)) {
             onInventionCharacterChange();
         }
+
+        // Auto-load cost index + character from active order config (or global fallback)
+        var _orderCfg = (_productionOrders && _productionOrders[_activeOrderIndex] && _productionOrders[_activeOrderIndex].config) || null;
+        var _savedCfg = _orderCfg || loadConfig();
+        if (_savedCfg.invention_cost_index != null) {
+            _inventionCostIndex = _savedCfg.invention_cost_index;
+        } else if (_savedCfg.indices && _savedCfg.indices.invention != null) {
+            _inventionCostIndex = _savedCfg.indices.invention;
+        } else if (_savedCfg.system_cost_index != null) {
+            _inventionCostIndex = _savedCfg.system_cost_index;
+        }
+        // Auto-select character from config
+        if (_savedCfg.character_id && !_inventionCharacterId) {
+            var _charSel = document.getElementById("bpInvCharacter");
+            if (_charSel) {
+                _charSel.value = _savedCfg.character_id;
+                onInventionCharacterChange();
+            }
+        }
+
+        // Update the fixed config bar with current values
+        renderInvConfigBar();
     }
 
     // ── Legacy invention functions (redirect to standalone) ──
@@ -2715,6 +2828,157 @@
     var _stationOrderTarget = null;
     var _inventionCharacterId = null;
     var _inventionCharSkills = {};
+    var _inventionSkillOverrides = {}; // {skill_type_id: level} for manual override (0-5)
+    var _lastSyncAttempt = 0; // timestamp to prevent ESI 429 spam
+
+    /** Render the config bar into the fixed bpInvConfigBar element (always visible) */
+    function renderInvConfigBar() {
+        var el = document.getElementById("bpInvConfigBar");
+        if (!el) return;
+        var html = _renderInvConfigBarHTML();
+        // Add Edit button right next to the bar
+        html += '<div class="mt-1 d-flex align-items-center gap-2" style="font-size:0.72rem;">';
+        html += '<button class="btn btn-sm btn-outline-secondary" onclick="BP.openConfigModal()" style="font-size:0.65rem;"><i class="bi bi-gear"></i> Edit Station Config</button>';
+        html += '<span class="text-muted">Install fee: <span class="text-info" id="bpInvInstallFee">' + formatNumber(_calcInvInstallFee(_inventionCostIndex)) + ' ISK</span></span>';
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    /** Render the config bar for invention tab (1:1 copy of Orders tab's renderConfigBar) */
+    function _renderInvConfigBarHTML() {
+        const c = loadConfig();
+        const order = _productionOrders[_activeOrderIndex];
+        const oc = (order && order.config) || {};
+
+        // Facility type icon + label (order config first)
+        var facLabels = { npc_station: "NPC Station", raitaru: "Raitaru", sotyo: "Sotyo", azbel: "Azbel" };
+        var facIcons = { npc_station: "\u{1F3EA}", raitaru: "\u{1F3ED}", sotyo: "\u{1F3ED}", azbel: "\u{1F3ED}" };
+        var facType = oc.facility_type || c.facility_type || "npc_station";
+        var facLabel = facLabels[facType] || "NPC Station";
+        var facIcon = facIcons[facType] || "\u{1F3EA}";
+
+        // Rig IDs (order config first, fallback global)
+        var rigIds = [oc.rig1 || c.rig1, oc.rig2 || c.rig2, oc.rig3 || c.rig3];
+        var _rigParts2 = rigIds.filter(function(r) { return r && r !== "none"; });
+        var rigLabel = _rigParts2.length > 0 ? _rigParts2.join(" + ") : "No Rigs";
+
+        // Security class display
+        var secDisplay = oc.security_class || c.security_class || "highsec";
+        var secBadgeClass = secDisplay === "highsec" ? "bg-success" : (secDisplay === "lowsec" ? "bg-warning text-dark" : "bg-danger");
+
+        // Character name (from order.config or global)
+        var charName = oc.character_name || c.character_name || "";
+        var charId = oc.character_id || c.character_id || 0;
+
+        // Skills summary from order.config skills array or global
+        var skillsStr = "";
+        if (oc.skills && Array.isArray(oc.skills) && oc.skills.length > 0) {
+            var skillMap = { 3380: "Ind", 3388: "Adv", 3398: "ALSC",
+                11452: "ME", 11444: "ASE", 11450: "GSE", 11454: "CSE", 11448: "MSE" };
+            var parts = [];
+            for (var si = 0; si < oc.skills.length; si++) {
+                var s = oc.skills[si];
+                var name = skillMap[s.skill_type_id];
+                if (name) parts.push(name + s.skill_level);
+            }
+            skillsStr = parts.length > 0 ? parts.join(" ") : "No skills";
+        } else if (charId) {
+            skillsStr = "Skills: (\u21BB sync)";
+        } else {
+            skillsStr = "No character";
+        }
+
+        // System cost index display
+        var ocIdx = oc.system_cost_index != null ? oc.system_cost_index : c.system_cost_index;
+        var indexDisplay = ocIdx != null ? (ocIdx * 100).toFixed(2) + "%" : "\u2014";
+
+        // System name display
+        var sysName = oc.system_name || c.system_name || "\u2014";
+
+        // Implant display
+        var implantLabels = {
+            beancounter_industry: 'Beancounter (-1% Mat)',
+            gnome: 'Gnome (-1% Time)',
+        };
+        var implantParts = [];
+        var i7 = oc.implant_slot7 || c.implant_slot7 || "";
+        var i8 = oc.implant_slot8 || c.implant_slot8 || "";
+        if (i7) implantParts.push('<span style="color:#6f42c1;">S7:</span>' + (implantLabels[i7] || i7));
+        if (i8) implantParts.push('<span style="color:#0dcaf0;">S8:</span>' + (implantLabels[i8] || i8));
+        var implantStr = implantParts.length > 0 ? implantParts.join(" / ") : '<span class="text-secondary">None</span>';
+
+        // Tax rate
+        var taxRate = oc.tax_rate != null ? oc.tax_rate : (c.tax_rate != null ? c.tax_rate : 5.0);
+
+        // Preset-Dropdown
+        var presets = loadStationPresets();
+        var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
+        var compCfg = oc.facility_type ? oc : c;
+        for (var pk in presets) {
+            var p = presets[pk];
+            var isActive = compCfg.facility_type === p.facility_type
+                && (compCfg.rig1 || "none") === (p.rig1 || "none")
+                && (compCfg.rig2 || "none") === (p.rig2 || "none")
+                && (compCfg.system_name || "") === (p.system_name || "");
+            presetOptions += '<option value="' + escHtml(pk) + '"' + (isActive ? ' selected' : '') + '>' + escHtml(pk) + '</option>';
+        }
+
+        var html = '<div class="bp-config-bar" style="margin-top:6px;font-size:0.68rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:4px;padding:4px 8px;">';
+
+        // Preset line
+        html += '<div class="bp-config-bar-line" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.6;">' +
+            '<span style="font-size:0.65rem;color:var(--t-text-muted,#888);">Preset:</span>' +
+            '<select class="bp-price-source-select" style="min-width:140px;font-size:0.65rem;" onchange="BP.applyStationPresetDirect(this.value)">' + presetOptions + '</select>' +
+            '</div>';
+
+        // Main config line
+        html += '<div class="bp-config-bar-line" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;line-height:1.6;margin-top:2px;">' +
+            '<span title="System: ' + escHtml(sysName) + '">' +
+                '<i class="bi bi-geo-alt"></i> ' + escHtml(sysName) + '</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span>' + facIcon + ' ' + facLabel + '</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span title="Rigs"><i class="bi bi-tools"></i> ' + escHtml(rigLabel) + '</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span class="badge ' + secBadgeClass + '" style="font-size:0.6rem;">' + secDisplay + '</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span title="Tax"><i class="bi bi-percent"></i> ' + taxRate.toFixed(1) + '%</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span title="Cost Index"><i class="bi bi-graph-up"></i> ' + indexDisplay + '</span>' +
+            '</div>';
+
+        // Character + Skills + Implants line
+        html += '<div class="bp-config-bar-line" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.6;margin-top:2px;">' +
+            '<span><i class="bi bi-person"></i> ' + (charName ? '<span class="text-info">' + escHtml(charName) + '</span>' : '<span class="text-secondary">No character</span>') + '</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span title="Skills">' + skillsStr + '</span>' +
+            '<span class="text-secondary mx-1">|</span>' +
+            '<span title="Implants">\u{1F9E0} ' + implantStr + '</span>' +
+            '</div>';
+
+        html += '</div>';
+        return html;
+    }
+
+    /** Calculate invention installation fee including tax from station config */
+    function _calcInvInstallFee(costIndexDecimal) {
+        var ci = costIndexDecimal != null ? costIndexDecimal : 0.01;
+        var base = 10000 * (1 + ci * 100); // Invention base = 10k ISK (not 250k like manufacturing)
+        // Apply facility tax from global config
+        var cfg = loadConfig();
+        var taxRate = (cfg && cfg.tax_rate != null) ? cfg.tax_rate : 5.0;
+        return base * (1 + taxRate / 100);
+    }
+
+    /** Get EVE invention base probability from item group name */
+    function _getInventionBaseProb(groupName) {
+        var g = (groupName || "").toLowerCase();
+        if (g.indexOf("frigate") >= 0 || g.indexOf("destroyer") >= 0) return 0.30;
+        if (g.indexOf("cruiser") >= 0 || g.indexOf("battlecruiser") >= 0) return 0.25;
+        if (g.indexOf("battleship") >= 0) return 0.20;
+        if (g.indexOf("xl") >= 0 || g.indexOf("dreadnought") >= 0 || g.indexOf("carrier") >= 0) return 0.10;
+        return 0.20; // modules, others
+    }
 
     function _buildInventionSummary(data) {
         if (!data || !data.has_invention) return "";
@@ -2750,33 +3014,28 @@
             }
         }
 
-        var ci = _inventionCostIndex || 0.01;
-        var installFee = 250000 * (1 + ci * 100);
+        var installFee = _calcInvInstallFee(_inventionCostIndex);
         var totalPerAttempt = materialsCost + decryptorCost + installFee;
 
-        // Base probability from EVE formula (approximate)
+        // Base probability from EVE formula
         var groupName = (data.blueprint.group_name || "").toLowerCase();
-        var baseProb = 0.20; // default for modules
-        if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
-        else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
-        else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        var baseProb = _getInventionBaseProb(groupName);
 
         // Skill-based probability from character skills
         var skillMod = 1.0;
         var maxDcLevel = 0;
-        if (data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
+        if (data.skills && data.skills.length > 0) {
             for (var si = 0; si < data.skills.length; si++) {
                 var tid = data.skills[si].skill_type_id;
-                var level = _inventionCharSkills[tid] || 0;
-                // All invention-specific skills (datacore skills) fall in range and affect probability
-                if (tid >= 23121 && tid <= 23133) {
-                    skillMod *= (1 + level * 0.02);
-                    if (tid >= 23122) {  // Datacore skills only (not encryption 23121)
-                        maxDcLevel = Math.max(maxDcLevel, level);
-                    }
+                // Use override if set, otherwise character skill, default 0
+                var level = _inventionSkillOverrides[tid] != null ? _inventionSkillOverrides[tid] : (_inventionCharSkills[tid] || 0);
+                skillMod *= (1 + level * 0.02);
+                // Track highest datacore level for T2 BPC runs bonus
+                if (tid != 23121 && tid != 21790 && tid != 21791 && tid != 23087 && tid != 52308 && tid != 55025) {
+                    maxDcLevel = Math.max(maxDcLevel, level);
                 }
             }
+            console.log("[INV] skillMod=" + skillMod.toFixed(4) + " baseProb=" + baseProb + " decProb=" + decryptorProb + " final=" + (baseProb * skillMod * decryptorProb).toFixed(4));
         }
         var probability = Math.min(baseProb * skillMod * decryptorProb, 0.95);
 
@@ -2833,27 +3092,101 @@
     function onInventionCharacterChange() {
         var sel = document.getElementById("bpInvCharacter");
         var charId = sel ? parseInt(sel.value) : null;
+        console.log("[INV] onInventionCharacterChange charId=" + charId + " prevId=" + _inventionCharacterId);
         _inventionCharacterId = charId;
 
         if (charId) {
+            showInventionSyncMsg("Loading skills...", "info");
             apiGet("/skills/" + charId + "/invention").then(function(data) {
-                _inventionCharSkills = data.skills || {};
-                if (_inventionData && _inventionData.has_invention) {
-                    renderInvention(_inventionData, _inventionData.blueprint.type_id);
+                var skills = data.skills || {};
+                console.log("[INV] Skills fetch result: keys=" + Object.keys(skills).length + " sample=" + JSON.stringify(Object.keys(skills).slice(0,3)));
+                _inventionCharSkills = skills;
+                // Auto-sync if skills are empty (character not yet synced from ESI)
+                if (Object.keys(skills).length === 0) {
+                    // ESI rate limit cooldown: 1 Stunde ab letztem 429-Fehler
+                    if (Date.now() - _lastSyncAttempt < 3600000) {
+                        showInventionSyncMsg("Skills leer — ESI Rate Limit (1h). Klicke 'Sync Skills' zum manuellen Sync.", "warning");
+                        if (_inventionData && _inventionData.has_invention) {
+                            renderInvention(_inventionData, _inventionData.blueprint.type_id);
+                        }
+                        return;
+                    }
+                    showInventionSyncMsg("No skills found — syncing from ESI...", "warning");
+                    console.log("[INV] Auto-syncing skills from ESI for char " + charId);
+                    apiPost("/skills/sync/" + charId, null).then(function(syncResult) {
+                        console.log("[INV] Sync result:", JSON.stringify(syncResult));
+                        return apiGet("/skills/" + charId + "/invention");
+                    }).then(function(syncedData) {
+                        var syncedSkills = syncedData.skills || {};
+                        console.log("[INV] Post-sync skills: keys=" + Object.keys(syncedSkills).length);
+                        _inventionCharSkills = syncedSkills;
+                        showInventionSyncMsg("Skills synced (" + Object.keys(_inventionCharSkills).length + ")", "ok");
+                        if (_inventionData && _inventionData.has_invention) {
+                            renderInvention(_inventionData, _inventionData.blueprint.type_id);
+                        }
+                    }).catch(function(syncErr) {
+                        console.warn("[INV] Auto-sync failed:", syncErr);
+                        var msg = String(syncErr);
+                        if (msg.indexOf("429") >= 0) {
+                            _lastSyncAttempt = Date.now(); // 1h Cooldown
+                            showInventionSyncMsg("ESI Rate Limit (1h Cooldown). Klicke 'Sync Skills' zum manuellen Sync.", "warning");
+                        } else {
+                            showInventionSyncMsg("Sync failed: " + msg, "error");
+                        }
+                        if (_inventionData && _inventionData.has_invention) {
+                            renderInvention(_inventionData, _inventionData.blueprint.type_id);
+                        }
+                    });
+                } else {
+                    console.log("[INV] Skills loaded from cache: " + Object.keys(skills).length + " skills");
+                    showInventionSyncMsg("Skills loaded (" + Object.keys(skills).length + ")", "ok");
+                    if (_inventionData && _inventionData.has_invention) {
+                        renderInvention(_inventionData, _inventionData.blueprint.type_id);
+                    }
                 }
             }).catch(function(e) {
-                console.warn("Failed to fetch invention skills:", e);
+                console.warn("[INV] Failed to fetch invention skills:", e);
                 _inventionCharSkills = {};
+                showInventionSyncMsg("Failed to load skills: " + String(e), "error");
                 if (_inventionData && _inventionData.has_invention) {
                     renderInvention(_inventionData, _inventionData.blueprint.type_id);
                 }
             });
         } else {
+            console.log("[INV] No character selected, clearing skills");
             _inventionCharSkills = {};
+            showInventionSyncMsg("", "");
             if (_inventionData && _inventionData.has_invention) {
                 renderInvention(_inventionData, _inventionData.blueprint.type_id);
             }
         }
+    }
+
+    /** Handle skill level override change from dropdown */
+    function onInvSkillOverrideChange(typeId, value) {
+        var level = parseInt(value);
+        if (isNaN(level) || level < 0) level = 0;
+        if (level > 5) level = 5;
+        if (level === (_inventionCharSkills[typeId] || 0)) {
+            delete _inventionSkillOverrides[typeId];
+        } else {
+            _inventionSkillOverrides[typeId] = level;
+        }
+        // Re-render invention summary with new override values
+        if (_inventionData && _inventionData.has_invention) {
+            renderInvention(_inventionData, _inventionData.blueprint.type_id);
+        }
+        // Update install fee display in config bar
+        renderInvConfigBar();
+    }
+
+    /** Reset all skill overrides back to character values */
+    function resetInvSkillOverrides() {
+        _inventionSkillOverrides = {};
+        if (_inventionData && _inventionData.has_invention) {
+            renderInvention(_inventionData, _inventionData.blueprint.type_id);
+        }
+        renderInvConfigBar();
     }
 
     async function syncInventionSkills() {
@@ -2867,6 +3200,7 @@
             await apiPost("/skills/sync/" + _inventionCharacterId, null);
             var data = await apiGet("/skills/" + _inventionCharacterId + "/invention");
             _inventionCharSkills = data.skills || {};
+            _lastSyncAttempt = 0; // Reset cooldown on success
             if (_inventionData && _inventionData.has_invention) {
                 renderInvention(_inventionData, _inventionData.blueprint.type_id);
             }
@@ -3005,25 +3339,18 @@
                 }
             }
         }
-        var ci = _inventionCostIndex || 0.01;
-        var installFee = 250000 * (1 + ci * 100);
+        var installFee = _calcInvInstallFee(_inventionCostIndex);
         var totalPerJob = matsCost + decCost + installFee;
 
         var groupName = (data.blueprint.group_name || "").toLowerCase();
-        var baseProb = 0.20;
-        if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
-        else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
-        else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        var baseProb = _getInventionBaseProb(groupName);
 
         var skillMod = 1.0;
         if (data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
             for (var si = 0; si < data.skills.length; si++) {
                 var tid = data.skills[si].skill_type_id;
-                var level = _inventionCharSkills[tid] || 0;
-                if (tid >= 23121 && tid <= 23133) {
-                    skillMod *= (1 + level * 0.02);
-                }
+                var level = _inventionSkillOverrides[tid] != null ? _inventionSkillOverrides[tid] : (_inventionCharSkills[tid] || 0);
+                skillMod *= (1 + level * 0.02);
             }
         }
         var decProb = 1.0;
@@ -3078,24 +3405,18 @@
                 }
             }
         }
-        var installFee = 250000 * (1 + ci * 100);
+        var installFee = _calcInvInstallFee(ci);
         var totalPerJob = matsCost + decCost + installFee;
 
         var groupName = (data.blueprint.group_name || "").toLowerCase();
-        var baseProb = 0.20;
-        if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
-        else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
-        else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        var baseProb = _getInventionBaseProb(groupName);
 
         var skillMod = 1.0;
         if (data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
             for (var si = 0; si < data.skills.length; si++) {
                 var tid = data.skills[si].skill_type_id;
-                var level = _inventionCharSkills[tid] || 0;
-                if (tid >= 23121 && tid <= 23133) {
-                    skillMod *= (1 + level * 0.02);
-                }
+                var level = _inventionSkillOverrides[tid] != null ? _inventionSkillOverrides[tid] : (_inventionCharSkills[tid] || 0);
+                skillMod *= (1 + level * 0.02);
             }
         }
         var decProb = 1.0;
@@ -3145,26 +3466,21 @@
                 }
             }
         }
-        var ci = _inventionCostIndex || 0.01;
-        var installFee = 250000 * (1 + ci * 100);
+        var installFee = _calcInvInstallFee(_inventionCostIndex);
         var totalPerJob = matsCost + decCost + installFee;
 
         var groupName = (data && data.blueprint ? (data.blueprint.group_name || "").toLowerCase() : "");
-        var baseProb = 0.20;
-        if (groupName.indexOf("frigate") >= 0 || groupName.indexOf("destroyer") >= 0) baseProb = 0.25;
-        else if (groupName.indexOf("cruiser") >= 0 || groupName.indexOf("battlecruiser") >= 0) baseProb = 0.20;
-        else if (groupName.indexOf("battleship") >= 0) baseProb = 0.15;
-        else if (groupName.indexOf("xl") >= 0 || groupName.indexOf("dreadnought") >= 0 || groupName.indexOf("carrier") >= 0) baseProb = 0.10;
+        var baseProb = _getInventionBaseProb(groupName);
 
         var skillMod = 1.0;
         var maxDcLevel = 0;
         if (data && data.skills && _inventionCharSkills && Object.keys(_inventionCharSkills).length > 0) {
             for (var si = 0; si < data.skills.length; si++) {
                 var tid = data.skills[si].skill_type_id;
-                var level = _inventionCharSkills[tid] || 0;
-                if (tid >= 23121 && tid <= 23133) {
-                    skillMod *= (1 + level * 0.02);
-                    if (tid >= 23122) maxDcLevel = Math.max(maxDcLevel, level);
+                var level = _inventionSkillOverrides[tid] != null ? _inventionSkillOverrides[tid] : (_inventionCharSkills[tid] || 0);
+                skillMod *= (1 + level * 0.02);
+                if (tid != 23121 && tid != 21790 && tid != 21791 && tid != 23087 && tid != 52308 && tid != 55025) {
+                    maxDcLevel = Math.max(maxDcLevel, level);
                 }
             }
         }
@@ -3305,7 +3621,10 @@
         // ── Materials from invention-options (loaded in selectCampaign) ──
         if (_campaignMaterials && _campaignMaterials.length > 0) {
             html += '<hr class="my-2" style="border-color:rgba(255,255,255,0.1);">';
-            html += '<div class="fw-bold mb-1" style="font-size:0.75rem;">Required Materials (per attempt)</div>';
+            html += '<div class="fw-bold mb-1 d-flex justify-content-between align-items-center" style="font-size:0.75rem;">';
+            html += '<span>Required Materials (per attempt)</span>';
+            html += '<button class="btn btn-sm btn-outline-info" onclick="BP.copyCampaignMaterials()" style="font-size:0.65rem;"><i class="bi bi-clipboard"></i> Copy Materials</button>';
+            html += '</div>';
             html += '<div class="table-responsive"><table class="table table-dark table-sm mb-0" style="font-size:0.65rem;">';
             html += '<thead><tr><th>Material</th><th class="text-end">Qty</th><th class="text-end">Buy</th><th class="text-end">Sell</th><th class="text-end">Custom</th><th class="text-end">Total</th></tr></thead><tbody>';
             var matsTotal = 0;
@@ -3457,6 +3776,55 @@
         if (_selectedCampaignId) {
             selectCampaign(_selectedCampaignId);
         }
+    }
+
+    function copyCampaignMaterials() {
+        if (!_campaignMaterials || _campaignMaterials.length === 0) {
+            alert("No materials to copy.");
+            return;
+        }
+        // Build TSV: item_name\tquantity\ttotal_price
+        var lines = ["Material\tQuantity\tTotal ISK"];
+        for (var mi = 0; mi < _campaignMaterials.length; mi++) {
+            var m = _campaignMaterials[mi];
+            var qty = m.quantity || 0;
+            var total = m.total_cost || 0;
+            if (_campaignOverridePrices && _campaignOverridePrices[m.material_type_id] != null) {
+                total = _campaignOverridePrices[m.material_type_id] * qty;
+            }
+            lines.push((m.name || "Unknown") + "\t" + qty.toLocaleString() + "\t" + Math.round(total).toLocaleString());
+        }
+        var text = lines.join("\n");
+
+        // Copy to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() {
+                var btn = document.querySelector('[onclick="BP.copyCampaignMaterials()"]');
+                if (btn) {
+                    var orig = btn.innerHTML;
+                    btn.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+                    setTimeout(function() { btn.innerHTML = orig; }, 2000);
+                }
+            }).catch(function() {
+                // Fallback: select textarea
+                fallbackCopy(text);
+            });
+        } else {
+            fallbackCopy(text);
+        }
+    }
+
+    function fallbackCopy(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand("copy");
+        } catch(e) {}
+        document.body.removeChild(ta);
     }
 
     function closeCampaignDetail() {
@@ -4653,6 +5021,27 @@
 
     /** Confirm button handler for the station selector modal.
      *  Only used for invention now (saves cost index). */
+    /** Helper: read a specific activity index from the indices table cells */
+    function _getIndexFromTable(prefixType, activity) {
+        var prefix = prefixType.charAt(0).toUpperCase() + prefixType.slice(1).toLowerCase();
+        var suffixMap = {
+            manufacturing: "Mfg",
+            research_material: "ME",
+            research_time: "TE",
+            copying: "Copy",
+            invention: "Inv",
+            reactions: "React",
+        };
+        var suffix = suffixMap[activity];
+        if (!suffix) return null;
+        var pctEl = document.getElementById("bp" + prefix + "Idx" + suffix + "Pct");
+        if (pctEl && pctEl.textContent !== "—") {
+            // textContent is like "0.4500%" – parseFloat stops at %
+            return parseFloat(pctEl.textContent) || null;
+        }
+        return null;
+    }
+
     async function confirmStationSelector() {
         var modalEl = document.getElementById("bpStationSelectorModal");
 
@@ -4671,14 +5060,16 @@
 
         if (_inventionStationSelectorActive) {
             _inventionStationSelectorActive = false;
-            if (systemCostIndex != null) {
-                _inventionCostIndex = systemCostIndex / 100;
+            // Use invention-specific index from the table, fallback to manufacturing
+            var invPct = _getIndexFromTable("sel", "invention") || systemCostIndex;
+            if (invPct != null) {
+                _inventionCostIndex = invPct / 100; // convert % to decimal
                 var ciEl = document.getElementById("bpInvCostIndex");
                 if (ciEl) ciEl.value = _inventionCostIndex;
                 if (_inventionData && _inventionData.has_invention) {
                     var summaryEl = document.getElementById("bpInvSummary");
                     var feeEl = document.getElementById("bpInvInstallFee");
-                    var installFee = 250000 * (1 + _inventionCostIndex * 100);
+                    var installFee = _calcInvInstallFee(_inventionCostIndex);
                     if (feeEl) feeEl.textContent = formatNumber(installFee) + " ISK";
                     if (summaryEl) summaryEl.innerHTML = _buildInventionSummary(_inventionData);
                 }
@@ -4698,6 +5089,19 @@
                     rig3: getSel("bpSelRig3") || "none",
                     system_name: getElVal("bpSelSystemName") || "",
                     system_cost_index: systemCostIndex != null ? systemCostIndex / 100 : null,
+                    indices: (function() {
+                        var acts = ["manufacturing", "research_material", "research_time", "copying", "invention", "reactions"];
+                        var idx = {};
+                        for (var ai = 0; ai < acts.length; ai++) {
+                            var pct = _getIndexFromTable("sel", acts[ai]);
+                            idx[acts[ai]] = pct != null ? pct / 100 : null;
+                        }
+                        return idx;
+                    })(),
+                    invention_cost_index: (function() {
+                        var pct = _getIndexFromTable("sel", "invention");
+                        return pct != null ? pct / 100 : null;
+                    })(),
                     security_class: (function() {
                         var secBadge = document.getElementById("bpSelSecClass");
                         if (secBadge && secBadge.style.display !== "none") return secBadge.textContent;
@@ -7869,6 +8273,18 @@
             var manualVal = parseFloat(getElVal("bpCfgIndexManualVal") || "5.0");
             return manualVal / 100;
         })();
+        // Store ALL activity indices from the table for modular reuse
+        oc.indices = (function() {
+            var acts = ["manufacturing", "research_material", "research_time", "copying", "invention", "reactions"];
+            var idx = {};
+            for (var ai = 0; ai < acts.length; ai++) {
+                var pct = _getIndexFromTable("cfg", acts[ai]);
+                idx[acts[ai]] = pct != null ? pct / 100 : null;
+            }
+            return idx;
+        })();
+        // Specific convenience fields for different features
+        oc.invention_cost_index = oc.indices ? oc.indices.invention : null;
         oc.security_class = getSel("bpCfgSecClassManual") || "highsec";
         oc.character_id = charSel ? parseInt(charSel.value) || 0 : 0;
         oc.character_name = charSel && charSel.selectedOptions && charSel.selectedOptions[0]
@@ -7890,6 +8306,8 @@
                 presets[presetSel.value].rig3 = oc.rig3;
                 presets[presetSel.value].system_name = oc.system_name;
                 presets[presetSel.value].system_cost_index = oc.system_cost_index;
+                presets[presetSel.value].indices = oc.indices;
+                presets[presetSel.value].invention_cost_index = oc.invention_cost_index;
                 saveStationPresets(presets);
                 console.log("[BP] Preset updated:", presetSel.value);
             }
@@ -7943,6 +8361,9 @@
         }
         renderConfigBar();
         scheduleRecalcOrder();
+
+        // Always refresh the invention config bar (even if no BP loaded)
+        renderInvConfigBar();
     }
 
     /** Lookup system cost index via API (Phase K — placeholder for now) */
@@ -8026,6 +8447,47 @@
     }
 
     /** Select a solar system from autocomplete results and look up its cost index */
+    /** Render all 6 activity indices into the indices table for a modal */
+    function _renderAllIndices(prefixType, indices) {
+        var prefix = prefixType.charAt(0).toUpperCase() + prefixType.slice(1).toLowerCase();
+        // Map ESI activity names to our row element suffixes
+        var activityMap = {
+            manufacturing: { row: "Mfg" },
+            research_material: { row: "ME" },
+            research_time: { row: "TE" },
+            copying: { row: "Copy" },
+            invention: { row: "Inv" },
+            reactions: { row: "React" },
+        };
+        var hasAny = false;
+        for (var act in activityMap) {
+            if (indices && indices[act] != null) {
+                hasAny = true;
+                break;
+            }
+        }
+        var tableEl = document.getElementById("bp" + prefix + "IndicesTable");
+        if (tableEl) {
+            tableEl.style.display = hasAny ? "block" : "none";
+        }
+        if (!indices) return;
+
+        for (var act in activityMap) {
+            var suffix = activityMap[act].row;
+            var valEl = document.getElementById("bp" + prefix + "Idx" + suffix);
+            var pctEl = document.getElementById("bp" + prefix + "Idx" + suffix + "Pct");
+            var val = indices[act];
+            if (val != null) {
+                if (valEl) valEl.textContent = val.toFixed(6);
+                if (pctEl) pctEl.textContent = (val * 100).toFixed(4) + "%";
+            } else {
+                if (valEl) valEl.textContent = "—";
+                if (pctEl) pctEl.textContent = "—";
+            }
+        }
+    }
+
+    /** Select a solar system from autocomplete results and look up its cost index */
     function selectSolarSystem(prefixType, systemName) {
         try {
         console.log("[BP] selectSolarSystem called:", prefixType, systemName);
@@ -8071,19 +8533,47 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data && data.cost_index != null) {
-                var pct = (data.cost_index * 100).toFixed(2);
-                idxResultEl.textContent = pct + "%";
-                if (prefixType === "cfg") {
-                    var manualEl = document.getElementById("bpCfgIndexManualVal");
-                    if (manualEl) manualEl.value = parseFloat(pct);
+            if (data && data.indices) {
+                // Show primary (manufacturing) in the summary span
+                var mfg = data.indices.manufacturing;
+                if (mfg != null) {
+                    var pct = (mfg * 100).toFixed(2);
+                    idxResultEl.textContent = pct + "%";
+                    if (prefixType === "cfg") {
+                        var manualEl = document.getElementById("bpCfgIndexManualVal");
+                        if (manualEl) manualEl.value = parseFloat(pct);
+                    } else if (prefixType === "inv") {
+                        // Update invention cost index to the invention-specific index
+                        var invIdx = data.indices.invention;
+                        if (invIdx != null) {
+                            _inventionCostIndex = invIdx;
+                            var ciEl = document.getElementById("bpInvCostIndex");
+                            if (ciEl) ciEl.value = _inventionCostIndex;
+                            var summaryEl = document.getElementById("bpInvSummary");
+                            var feeEl = document.getElementById("bpInvInstallFee");
+                            var installFee = _calcInvInstallFee(_inventionCostIndex);
+                            if (feeEl) feeEl.textContent = formatNumber(installFee) + " ISK";
+                            if (summaryEl && _inventionData && _inventionData.has_invention) {
+                                summaryEl.innerHTML = _buildInventionSummary(_inventionData);
+                            }
+                        }
+                    }
+                } else {
+                    idxResultEl.textContent = "No mfg index";
                 }
+                // Render ALL 6 indices into the table
+                _renderAllIndices(prefixType, data.indices);
+            } else if (data && data.found) {
+                idxResultEl.textContent = "No indices available";
+                _renderAllIndices(prefixType, null);
             } else {
                 idxResultEl.textContent = "Not found (enter manually)";
+                _renderAllIndices(prefixType, null);
             }
         })
         .catch(function() {
             idxResultEl.textContent = "Not found (enter manually)";
+            _renderAllIndices(prefixType, null);
         });
         } catch(e) { console.warn("[BP] selectSolarSystem error:", e.message); }
     }
@@ -9561,6 +10051,9 @@
         onCfgFacilityChange: onCfgFacilityChange,
         onInventionCharacterChange: onInventionCharacterChange,
         syncInventionSkills: syncInventionSkills,
+        renderInvConfigBar: renderInvConfigBar,
+        onInvSkillOverrideChange: onInvSkillOverrideChange,
+        resetInvSkillOverrides: resetInvSkillOverrides,
         onDecryptorChange: function(typeId) {
             _inventionDecryptor = typeId;
             if (_inventionData && _inventionData.has_invention) {
@@ -9576,7 +10069,7 @@
             var customFeeVal = customFeeEl ? parseFloat(customFeeEl.value) : NaN;
             _inventionCustomInstallFee = isNaN(customFeeVal) || customFeeEl.value === "" ? null : customFeeVal;
             if (true) {
-                var _aFee = 250000 * (1 + _inventionCostIndex * 100);
+                var _aFee = _calcInvInstallFee(_inventionCostIndex);
                 var installFee = (_inventionCustomInstallFee != null) ? _inventionCustomInstallFee : _aFee;
                 var feeEl = document.getElementById("bpInvInstallFee");
                 if (feeEl) feeEl.textContent = formatNumber(installFee) + " ISK";
@@ -9620,6 +10113,7 @@
         updateCampaignStatus: updateCampaignStatus,
         deleteCampaign: deleteCampaign,
         pasteCampaignMultibuy: pasteCampaignMultibuy,
+        copyCampaignMaterials: copyCampaignMaterials,
     };
 
     // ── Start ──────────────────────────────────────────────────────

@@ -21,13 +21,17 @@ logger = logging.getLogger(__name__)
 # (type_id, name, probability_modifier, runs_modifier, me_modifier, te_modifier)
 
 DECRYPTORS = [
-    {"type_id": 34201, "name": "Accelerant Decryptor", "prob": 1.1, "runs": 1, "me": 0, "te": 0},
-    {"type_id": 34202, "name": "Attainment Decryptor", "prob": 0.4, "runs": 4, "me": 1, "te": 1},
-    {"type_id": 34203, "name": "Parity Decryptor", "prob": 0.6, "runs": 2, "me": 2, "te": 2},
-    {"type_id": 34204, "name": "Symmetry Decryptor", "prob": 0.7, "runs": 3, "me": 0, "te": 0},
-    {"type_id": 34205, "name": "Augmentation Decryptor", "prob": 0.3, "runs": 7, "me": 4, "te": 4},
-    {"type_id": 34206, "name": "Optimized Attainment Decryptor", "prob": 0.35, "runs": 5, "me": 2, "te": 2},
-    {"type_id": 34207, "name": "Optimized Augmentation Decryptor", "prob": 0.25, "runs": 9, "me": 6, "te": 6},
+    # EVE Decryptors — values from ESI dogma_attributes:
+    # attr_1112 = probability multiplier, attr_1124 = max run modifier
+    # attr_1113 = material efficiency, attr_1114 = time efficiency
+    {"type_id": 34201, "name": "Accelerant Decryptor", "prob": 1.2, "runs": 1, "me": 2, "te": 10},
+    {"type_id": 34202, "name": "Attainment Decryptor", "prob": 1.8, "runs": 4, "me": -1, "te": 4},
+    {"type_id": 34203, "name": "Augmentation Decryptor", "prob": 0.6, "runs": 9, "me": -2, "te": 2},
+    {"type_id": 34204, "name": "Parity Decryptor", "prob": 1.5, "runs": 3, "me": 1, "te": -2},
+    {"type_id": 34205, "name": "Process Decryptor", "prob": 1.1, "runs": 0, "me": 3, "te": 6},
+    {"type_id": 34206, "name": "Symmetry Decryptor", "prob": 1.0, "runs": 2, "me": 1, "te": 8},
+    {"type_id": 34207, "name": "Optimized Attainment Decryptor", "prob": 1.9, "runs": 2, "me": 1, "te": -2},
+    {"type_id": 34208, "name": "Optimized Augmentation Decryptor", "prob": 0.9, "runs": 7, "me": 2, "te": 0},
 ]
 
 # ── Blueprint group → datacore mapping ─────────────────────────
@@ -154,14 +158,15 @@ async def invent_calculate(
     dc1_price = await _get_price(db, dc_info["dc1_id"]) or 0
     dc2_price = await _get_price(db, dc_info["dc2_id"]) or 0
     
-    # Invention probability formula
-    base_prob = 0.20  # Base 20% for modules, varies for ships
+    # Invention probability formula (EVE standard values)
+    # Frigates/Destroyers: 30%, Cruisers/BC: 25%, Battleships: 20%, Capitals: 10%, Modules: 20%
+    base_prob = 0.20  # Default for modules
     if any(kw in group_name for kw in ["frigate", "destroyer"]):
-        base_prob = 0.25
+        base_prob = 0.30
     elif any(kw in group_name for kw in ["cruiser", "battlecruiser"]):
-        base_prob = 0.20
+        base_prob = 0.25
     elif any(kw in group_name for kw in ["battleship"]):
-        base_prob = 0.15
+        base_prob = 0.20
     elif any(kw in group_name for kw in ["capital", "dreadnought", "carrier"]):
         base_prob = 0.10
     
@@ -200,9 +205,9 @@ async def invent_calculate(
     # Per-attempt costs
     dc1_cost_total = dc1_price * dc_per_attempt
     dc2_cost_total = dc2_price * dc_per_attempt
-    install_cost = 250000  # base installation fee (simplified)
+    install_cost = 10000  # base installation fee for invention (not 250k like manufacturing)
     if system_cost_index:
-        install_cost = 250000 * (1 + system_cost_index * 100)
+        install_cost = 10000 * (1 + system_cost_index * 100)
     
     total_cost_per_attempt = dc1_cost_total + dc2_cost_total + decryptor_price + install_cost
     expected_cost = total_cost_per_attempt / max(probability, 0.01)

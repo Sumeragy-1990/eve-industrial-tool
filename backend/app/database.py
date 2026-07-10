@@ -48,5 +48,6 @@ async def init_db():
         from app.models.invention_campaign import InventionCampaign  # noqa
         from app.models.invention_campaign_result import InventionCampaignResult  # noqa
         from app.models.sde_solar_system import SDESolarSystem, SDERegion, SDEStation  # noqa
+        from app.models.system_cost_index import SystemCostIndex  # noqa
 
         await conn.run_sync(Base.metadata.create_all)
