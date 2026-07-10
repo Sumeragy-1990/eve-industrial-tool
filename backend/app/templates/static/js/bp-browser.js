@@ -7423,7 +7423,7 @@
             opt.textContent = key;
             // Mark if this matches current form state
             if (!matchedKey && facVal && p.facility_type === facVal
-                && String(p.tax_rate || 5.0) === String(taxVal || "5.0")
+                && String(p.tax_rate != null ? p.tax_rate : 5.0) === String(taxVal != null ? taxVal : "5.0")
                 && (p.system_name || "") === (sysVal || "")) {
                 opt.selected = true;
                 matchedKey = key;
@@ -8187,7 +8187,7 @@
             facility: {
                 facility_type: c.facility_type || "npc_station",
                 rigs: c.rigs || "none",
-                tax_rate: c.tax_rate || 5.0,
+                tax_rate: c.tax_rate != null ? c.tax_rate : 5.0,
                 system_cost_index: c.system_cost_index || null,
                 price_source: c.price_source || "jita_sell",
             },
