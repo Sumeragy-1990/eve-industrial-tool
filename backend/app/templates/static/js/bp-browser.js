@@ -7878,6 +7878,23 @@
         oc.tax_rate = (function(){ var t = parseFloat(getElVal("bpCfgTax")); return isNaN(t) ? 0 : t; })();
         oc.skills = modalEl ? modalEl._lastSkills || [] : [];
 
+        // Also update the currently selected preset if one is active
+        var presetSel = document.getElementById("bpCfgPresetSelect");
+        if (presetSel && presetSel.value) {
+            var presets = loadStationPresets();
+            if (presets[presetSel.value]) {
+                presets[presetSel.value].tax_rate = oc.tax_rate;
+                presets[presetSel.value].facility_type = oc.facility_type;
+                presets[presetSel.value].rig1 = oc.rig1;
+                presets[presetSel.value].rig2 = oc.rig2;
+                presets[presetSel.value].rig3 = oc.rig3;
+                presets[presetSel.value].system_name = oc.system_name;
+                presets[presetSel.value].system_cost_index = oc.system_cost_index;
+                saveStationPresets(presets);
+                console.log("[BP] Preset updated:", presetSel.value);
+            }
+        }
+
         if (order) {
             order.config = oc;
             saveOrders();
