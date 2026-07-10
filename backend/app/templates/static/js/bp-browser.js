@@ -7855,11 +7855,7 @@
             var manualVal = parseFloat(getElVal("bpCfgIndexManualVal") || "5.0");
             return manualVal / 100;
         })();
-        oc.security_class = (function() {
-            var secBadge = document.getElementById("bpCfgSecClass");
-            if (secBadge && secBadge.style.display !== "none" && secBadge.textContent !== "—") return secBadge.textContent;
-            return getSel("bpCfgSecClassManual") || "highsec";
-        })();
+        oc.security_class = getSel("bpCfgSecClassManual") || "highsec";
         oc.character_id = charSel ? parseInt(charSel.value) || 0 : 0;
         oc.character_name = charSel && charSel.selectedOptions && charSel.selectedOptions[0]
             ? charSel.selectedOptions[0].textContent : "";
