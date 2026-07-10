@@ -1565,8 +1565,11 @@ async def calculate_build_cost(
     rig_names = facility.rigs.split(",") if facility.rigs and "," in facility.rigs else [facility.rigs]
     # Look up rig bonuses from database, fall back to static dict
     if rig_names and rig_names != ["none"]:
-        rig_query = text("SELECT rig_id, material_bonus, time_bonus FROM rigs WHERE rig_id IN :ids")
-        rig_rows = (await db.execute(rig_query, {"ids": tuple(rig_names)})).all()
+        # SQLAlchemy text() doesn't expand tuples for IN with asyncpg; use bindparam expansion
+        rig_placeholders = ", ".join(f":rid_{i}" for i in range(len(rig_names)))
+        rig_params = {f"rid_{i}": rn for i, rn in enumerate(rig_names)}
+        rig_query = text(f"SELECT rig_id, material_bonus, time_bonus FROM rigs WHERE rig_id IN ({rig_placeholders})")
+        rig_rows = (await db.execute(rig_query, rig_params)).all()
         rig_mat_db = {r[0]: r[1] for r in rig_rows}  # rig_id -> material_bonus
         rig_time_db = {r[0]: r[2] for r in rig_rows}  # rig_id -> time_bonus
     else:
