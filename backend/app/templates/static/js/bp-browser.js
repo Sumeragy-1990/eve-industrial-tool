@@ -7907,9 +7907,10 @@
     /** Lookup system cost index via API (Phase K — placeholder for now) */
     /** Search solar systems by prefix (autocomplete). prefix_type = "cfg" or "sel" */
     function searchSolarSystems(prefixType) {
+        try {
         var inputEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemName");
         var resultsEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemResults");
-        if (!inputEl || !resultsEl) return;
+        if (!inputEl || !resultsEl) { console.warn("[BP] searchSolarSystems: input/results not found"); return; }
         var query = inputEl.value.trim();
         if (query.length < 1) {
             resultsEl.style.display = "none";
@@ -7938,12 +7939,22 @@
                     ' <span class="sys-region">' + escHtml(s.region_name || "") + '</span>' +
                     '</button>';
             }
+            resultsEl.style.position = "fixed";
+            resultsEl.style.zIndex = "99999";
             resultsEl.innerHTML = html;
             resultsEl.style.display = "block";
+            // Position below the input
+            if (inputEl) {
+                var rect = inputEl.getBoundingClientRect();
+                resultsEl.style.top = (rect.bottom + 2) + "px";
+                resultsEl.style.left = rect.left + "px";
+                resultsEl.style.width = Math.max(rect.width, 300) + "px";
+            }
         })
         .catch(function() {
             resultsEl.style.display = "none";
         });
+        } catch(e) { console.warn("[BP] searchSolarSystems error:", e.message); }
     }
 
     /** Select a solar system from autocomplete results and look up its cost index */
