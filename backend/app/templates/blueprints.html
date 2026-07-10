@@ -1385,7 +1385,7 @@
                     </div>
                     <div class="position-relative mt-1 ms-4">
                         <div class="d-flex align-items-center gap-2">
-                            <input type="text" class="form-control form-control-sm" id="bpCfgSystemName" placeholder="Type system name..." style="width:200px;font-size:0.75rem;" autocomplete="off" oninput="BP.searchSolarSystems('cfg')">
+                            <input type="text" class="form-control form-control-sm" id="bpCfgSystemName" placeholder="Type system name..." style="width:200px;font-size:0.75rem;" autocomplete="off" oninput="BP.searchSolarSystems(this)">
                             <span class="text-info small" id="bpCfgIndexResult">—</span>
                         </div>
                         <div id="bpCfgSystemResults" class="bp-autocomplete-results" style="display:none;"></div>
@@ -1523,7 +1523,7 @@
                     <label class="form-label mb-0 text-secondary" style="font-size:0.75rem;">System Cost Index</label>
                     <div class="position-relative">
                         <div class="d-flex align-items-center gap-1">
-                            <input type="text" class="form-control form-control-sm" id="bpSelSystemName" placeholder="Type system name..." style="font-size:0.75rem;width:180px;" autocomplete="off" oninput="BP.searchSolarSystems('sel')">
+                            <input type="text" class="form-control form-control-sm" id="bpSelSystemName" placeholder="Type system name..." style="font-size:0.75rem;width:180px;" autocomplete="off" oninput="BP.searchSolarSystems(this)">
                             <span class="text-info small" id="bpSelIdxResult" style="min-width:50px;">—</span>
                             <span class="badge bg-secondary" id="bpSelSecClass" style="font-size:0.6rem;display:none;">—</span>
                         </div>

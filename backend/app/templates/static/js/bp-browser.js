@@ -7905,12 +7905,19 @@
     }
 
     /** Lookup system cost index via API (Phase K — placeholder for now) */
-    /** Search solar systems by prefix (autocomplete). prefix_type = "cfg" or "sel" */
-    function searchSolarSystems(prefixType) {
+    /** Search solar systems by prefix (autocomplete). Accepts prefix string or input element */
+    function searchSolarSystems(inputOrPrefix) {
         try {
-        var inputEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemName");
-        var resultsEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemResults");
-        if (!inputEl || !resultsEl) { console.warn("[BP] searchSolarSystems: input/results not found"); return; }
+        var inputEl, resultsEl;
+        if (typeof inputOrPrefix === "string") {
+            inputEl = document.getElementById("bp" + inputOrPrefix.toUpperCase() + "SystemName");
+            resultsEl = document.getElementById("bp" + inputOrPrefix.toUpperCase() + "SystemResults");
+        } else {
+            inputEl = inputOrPrefix;
+            var parent = inputEl ? inputEl.closest(".position-relative") : null;
+            resultsEl = parent ? parent.querySelector(".bp-autocomplete-results") : null;
+        }
+        if (!inputEl || !resultsEl) { console.warn("[BP] searchSolarSystems: input/results not found, prefix:", typeof inputOrPrefix); return; }
         var query = inputEl.value.trim();
         if (query.length < 1) {
             resultsEl.style.display = "none";
@@ -7925,7 +7932,9 @@
                 resultsEl.style.display = "none";
                 return;
             }
-            var html = "";
+            // Determine prefix for select callback
+        var _prefix = (typeof inputOrPrefix === "string") ? inputOrPrefix : (inputEl ? inputEl.id.replace("SystemName", "").toLowerCase() : "cfg");
+        var html = "";
             for (var i = 0; i < systems.length; i++) {
                 var s = systems[i];
                 var secClass = "sys-sec-null";
@@ -7933,7 +7942,7 @@
                 if (s.security_status >= 0.5) { secClass = "sys-sec-high"; secLabel = s.security_status.toFixed(1); }
                 else if (s.security_status >= 0.0) { secClass = "sys-sec-low"; secLabel = s.security_status.toFixed(1); }
                 html += '<button type="button" class="bp-autocomplete-item" ' +
-                    'onclick="BP.selectSolarSystem(\'' + prefixType + '\', \'' + escJs(s.system_name) + '\')">' +
+                    'onclick="BP.selectSolarSystem(\'' + _prefix + '\', \'' + escJs(s.system_name) + '\')">' +
                     escHtml(s.system_name) +
                     ' <span class="sys-sec ' + secClass + '">' + secLabel + '</span>' +
                     ' <span class="sys-region">' + escHtml(s.region_name || "") + '</span>' +
