@@ -31,6 +31,15 @@
         return str.replace(/'/g, "\\'").replace(/"/g, '"');
     }
 
+    // Global click handler to hide floating search results when clicking elsewhere
+    document.addEventListener("click", function(evt) {
+        if (evt.target.closest && !evt.target.closest("[id^='bpFloatingResults_']") && !evt.target.closest("[id$='SystemName']")) {
+            document.querySelectorAll("[id^='bpFloatingResults_']").forEach(function(el) {
+                if (el.style.display !== "none") el.style.display = "none";
+            });
+        }
+    });
+
     function formatNumber(n) {
         if (n == null || isNaN(n)) return "-";
         return Number(n).toLocaleString("en-US");
@@ -7986,16 +7995,18 @@
 
     /** Select a solar system from autocomplete results and look up its cost index */
     function selectSolarSystem(prefixType, systemName) {
+        try {
+        console.log("[BP] selectSolarSystem called:", prefixType, systemName);
         var inputEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemName");
         var resultsEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemResults");
         var idxSuffix = (prefixType === "cfg") ? "IndexResult" : "IdxResult";
         var idxResultEl = document.getElementById("bp" + prefixType.toUpperCase() + idxSuffix);
+        console.log("[BP] selectSolarSystem elements:", {inputEl:!!inputEl, resultsEl:!!resultsEl, idxResultEl:!!idxResultEl});
         if (inputEl) inputEl.value = systemName;
-        // Also hide floating results if present
-        var floatingResult = document.getElementById("bpFloatingResults_" + prefixType);
-        if (floatingResult) floatingResult.style.display = "none";
+        // Hide ALL floating results
+        document.querySelectorAll('[id^="bpFloatingResults_"]').forEach(function(el) { el.style.display = "none"; });
         if (resultsEl) resultsEl.style.display = "none";
-        if (!idxResultEl) return;
+        if (!idxResultEl) { console.warn("[BP] idxResultEl not found"); return; }
         idxResultEl.textContent = "Looking up...";
 
         // Also fetch security info for station selector
@@ -8040,6 +8051,7 @@
         .catch(function() {
             idxResultEl.textContent = "Not found (enter manually)";
         });
+        } catch(e) { console.warn("[BP] selectSolarSystem error:", e.message); }
     }
 
     /** Close system autocomplete dropdown on outside click (called from body onclick) */
