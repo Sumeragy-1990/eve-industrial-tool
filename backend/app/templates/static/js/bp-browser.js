@@ -3765,6 +3765,10 @@
             const saved = localStorage.getItem(ORDERS_STORAGE_KEY);
             if (saved) {
                 _productionOrders = JSON.parse(saved);
+                // Debug: log first order's config
+                if (_productionOrders.length > 0 && _productionOrders[0].config) {
+                    console.log("[BP] LOADED order[0].config:", JSON.stringify(_productionOrders[0].config));
+                }
                 // Migrate old orders: add materials/build_cost fields if missing
                 for (const ord of _productionOrders) {
                     if (!ord.facility_config) ord.facility_config = null;
@@ -7846,6 +7850,7 @@
 
     /** Apply the modal values and save to the active order's config (or global fallback) */
     function applyConfigPanel() {
+        console.log("[BP] applyConfigPanel START, _activeOrderIndex:", _activeOrderIndex);
         var modalEl = document.getElementById("bpConfigModal");
         var order = _productionOrders[_activeOrderIndex];
         var oc = (order && order.config) ? order.config : {};
@@ -7876,6 +7881,16 @@
         if (order) {
             order.config = oc;
             saveOrders();
+            // Debug: show saved config in config bar
+            var debugEl = document.getElementById("bpDebugSavedConfig");
+            if (!debugEl) {
+                debugEl = document.createElement("div");
+                debugEl.id = "bpDebugSavedConfig";
+                debugEl.style.cssText = "font-size:0.55rem;color:#888;padding:2px 8px;border-top:1px solid #2a3a4a;max-height:60px;overflow-y:auto;word-break:break-all;";
+                var bar = document.getElementById("bpConfigBarBody");
+                if (bar) bar.parentNode.insertBefore(debugEl, bar.nextSibling);
+            }
+            debugEl.textContent = "DEBUG idx=" + _activeOrderIndex + " saved: tax=" + oc.tax_rate + " fac=" + oc.facility_type + " sys=" + oc.system_name + " sec=" + oc.security_class + " char=" + oc.character_name + " rigs=" + [oc.rig1, oc.rig2, oc.rig3].filter(Boolean).join(",");
             console.log("[BP] Order config saved:", JSON.stringify(oc));
             // Refresh build costs with new config
             _fetchBuildCostsForOrder(order).then(function() {
