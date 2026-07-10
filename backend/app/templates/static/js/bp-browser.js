@@ -7933,7 +7933,7 @@
                 return;
             }
             // Determine prefix for select callback
-        var _prefix = (typeof inputOrPrefix === "string") ? inputOrPrefix : (inputEl ? inputEl.id.replace("SystemName", "").toLowerCase() : "cfg");
+                var _prefix = (typeof inputOrPrefix === "string") ? inputOrPrefix : (inputEl ? inputEl.id.replace(/^bp(.*)SystemName$/, "$1").toLowerCase() : "cfg");
         var html = "";
             for (var i = 0; i < systems.length; i++) {
                 var s = systems[i];
