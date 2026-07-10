@@ -2888,8 +2888,11 @@
             skillsStr = "No character";
         }
 
-        // System cost index display
-        var ocIdx = oc.system_cost_index != null ? oc.system_cost_index : c.system_cost_index;
+        // System cost index display (prefer invention index, fallback manufacturing)
+        var ocIdx = oc.invention_cost_index != null ? oc.invention_cost_index :
+                     (oc.system_cost_index != null ? oc.system_cost_index :
+                      c.invention_cost_index != null ? c.invention_cost_index :
+                      c.system_cost_index);
         var indexDisplay = ocIdx != null ? (ocIdx * 100).toFixed(2) + "%" : "\u2014";
 
         // System name display
@@ -4748,7 +4751,7 @@
     }
 
     /** Called when facility type changes in config modal — show/hide rigs + load from DB */
-    function onCfgFacilityChange() {
+    function onCfgFacilityChange(savedRigIds) {
         var facEl = document.getElementById("bpCfgFacilityType");
         var rigsCol = document.getElementById("bpCfgRigsCol");
         if (!facEl || !rigsCol) return;
@@ -4756,12 +4759,12 @@
         rigsCol.style.display = isRigFacility ? "block" : "none";
         if (isRigFacility) {
             var sizeMap = { raitaru: "M", sotyo: "L", azbel: "XL" };
-            _populateRigSelects(sizeMap[facEl.value] || "M");
+            _populateRigSelects(sizeMap[facEl.value] || "M", savedRigIds);
         }
     }
 
     /** Fetch rigs from DB by structure size and populate the 3 rig selects */
-    function _populateRigSelects(size) {
+    function _populateRigSelects(size, savedRigIds) {
         var hint = document.getElementById("bpCfgRigHint");
         if (hint) hint.innerHTML = '<span class="text-info">Loading rigs...</span>';
         fetch("/api/rigs?size=" + size, { credentials: "include" })
@@ -4774,7 +4777,8 @@
             for (var si = 1; si <= 3; si++) {
                 var sel = document.getElementById("bpCfgRig" + si);
                 if (!sel) continue;
-                var val = sel.value; // preserve selection
+                // Use saved rig ID if provided, otherwise preserve current selection
+                var val = (savedRigIds && savedRigIds[si-1]) ? savedRigIds[si-1] : sel.value;
                 sel.innerHTML = '<option value="none">\u2014 No Rig \u2014</option>';
                 for (var ri = 0; ri < rigs.length; ri++) {
                     var r = rigs[ri];
@@ -8174,15 +8178,9 @@
         // ── Facility + Rigs (order.config first) ──
         var ocFac = ocInit.facility_type || c.facility_type || "npc_station";
         setSel("bpCfgFacilityType", ocFac);
-        onCfgFacilityChange();
-        // Rig values need to be set AFTER async load
-        setTimeout(function() {
-            var rigIds = [ocInit.rig1 || c.rig1, ocInit.rig2 || c.rig2, ocInit.rig3 || c.rig3];
-            for (var ri = 0; ri < 3; ri++) {
-                var el = document.getElementById("bpCfgRig" + (ri + 1));
-                if (el && rigIds[ri]) el.value = rigIds[ri];
-            }
-        }, 100);
+        // Pass saved rig IDs to _populateRigSelects so they're set AFTER load
+        var _savedRigs = [ocInit.rig1 || c.rig1, ocInit.rig2 || c.rig2, ocInit.rig3 || c.rig3];
+        onCfgFacilityChange(_savedRigs);
         // Tax from order.config first
         var ocTax = ocInit.tax_rate != null ? ocInit.tax_rate : (c.tax_rate != null ? c.tax_rate : 5.0);
         var taxEl = document.getElementById("bpCfgTax");
