@@ -1860,7 +1860,7 @@ async def calculate_build_cost(
         else:
             # Default: 0.05 for manufacturing, 0.02 for reactions (reactions are typically cheaper)
             system_cost_index = 0.02 if plan_is_reaction else 0.05
-        facility_tax_rate = facility.tax_rate / 100.0 if facility.tax_rate else 0.0
+        facility_tax_rate = facility.tax_rate / 100.0 if facility.tax_rate is not None else 0.0
         scc_surcharge_rate = 0.04
         structure_role_bonus = 0.0  # Default 0; erweiterbar via Facility-Config
 

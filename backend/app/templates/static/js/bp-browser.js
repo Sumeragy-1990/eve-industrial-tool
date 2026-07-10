@@ -5883,7 +5883,7 @@
     function calcSubStepJobCosts(buildStepsData, cfg) {
         if (!buildStepsData || !buildStepsData.steps) return 0;
         var sysIdx = (cfg && cfg.system_cost_index != null) ? cfg.system_cost_index / 100.0 : 0.05;
-        var taxRate = (cfg && cfg.tax_rate) ? cfg.tax_rate / 100.0 : 0.05;
+        var taxRate = (cfg && cfg.tax_rate != null) ? cfg.tax_rate / 100.0 : 0.05;
         var total = 0;
         function walkStep(step, isRoot) {
             if (!step) return;
@@ -7402,10 +7402,23 @@
         if (!sel) return;
         var presets = loadStationPresets();
         sel.innerHTML = '<option value="">-- Select preset --</option>';
+        // Find matching preset based on form fields
+        var facVal = (document.getElementById("bpCfgFacilityType") || {}).value;
+        var taxVal = (document.getElementById("bpCfgTax") || {}).value;
+        var sysVal = (document.getElementById("bpCfgSystemName") || {}).value;
+        var matchedKey = "";
         for (var key in presets) {
+            var p = presets[key];
             var opt = document.createElement("option");
             opt.value = key;
             opt.textContent = key;
+            // Mark if this matches current form state
+            if (!matchedKey && facVal && p.facility_type === facVal
+                && String(p.tax_rate || 5.0) === String(taxVal || "5.0")
+                && (p.system_name || "") === (sysVal || "")) {
+                opt.selected = true;
+                matchedKey = key;
+            }
             sel.appendChild(opt);
         }
     }
@@ -7422,8 +7435,9 @@
         setSel("bpCfgRigs", p.rigs || "none");
         var taxEl = document.getElementById("bpCfgTax");
         var taxValEl = document.getElementById("bpCfgTaxVal");
-        if (taxEl) { taxEl.value = p.tax_rate || 5.0; taxEl.dispatchEvent(new Event("input")); }
-        if (taxValEl) taxValEl.textContent = (p.tax_rate || 5.0).toFixed(1) + "%";
+        var presetTax = p.tax_rate != null ? p.tax_rate : 5.0;
+        if (taxEl) { taxEl.value = presetTax; taxEl.dispatchEvent(new Event("input")); }
+        if (taxValEl) taxValEl.textContent = presetTax.toFixed(1) + "%";
 
         // Set station — find matching option or add it
         var stationSel = document.getElementById("bpCfgStation");
@@ -7731,9 +7745,6 @@
         var modal = document.getElementById("bpConfigModal");
         if (!modal) return;
 
-        // Populate station presets dropdown
-        populatePresetDropdown();
-
         // ── Character dropdown + skills (order.config first) ──
         var order = _productionOrders[_activeOrderIndex];
         var ocInit = (order && order.config) || {};
@@ -7816,6 +7827,9 @@
         setSel("bpCfgImplant7", c.implant_slot7 || "");
         setSel("bpCfgImplant8", c.implant_slot8 || "");
         setSel("bpCfgImplant10", c.implant_slot10 || "");
+
+        // Populate presets AFTER all form fields are set (so matching works)
+        populatePresetDropdown();
 
         // Open modal
         var bsModal = new bootstrap.Modal(modal);
