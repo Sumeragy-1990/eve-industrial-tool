@@ -7997,10 +7997,12 @@
     function selectSolarSystem(prefixType, systemName) {
         try {
         console.log("[BP] selectSolarSystem called:", prefixType, systemName);
-        var inputEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemName");
-        var resultsEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemResults");
+        // Convert prefix like "cfg" to "Cfg" (PascalCase) to match HTML ids: bpCfgSystemName
+        var pPrefix = prefixType.charAt(0).toUpperCase() + prefixType.slice(1).toLowerCase();
+        var inputEl = document.getElementById("bp" + pPrefix + "SystemName");
+        var resultsEl = document.getElementById("bp" + pPrefix + "SystemResults");
         var idxSuffix = (prefixType === "cfg") ? "IndexResult" : "IdxResult";
-        var idxResultEl = document.getElementById("bp" + prefixType.toUpperCase() + idxSuffix);
+        var idxResultEl = document.getElementById("bp" + pPrefix + idxSuffix);
         console.log("[BP] selectSolarSystem elements:", {inputEl:!!inputEl, resultsEl:!!resultsEl, idxResultEl:!!idxResultEl});
         if (inputEl) inputEl.value = systemName;
         // Hide ALL floating results
@@ -8017,7 +8019,7 @@
         .then(function(systems) {
             for (var si = 0; si < (systems || []).length; si++) {
                 if (systems[si].system_name === systemName) {
-                    var secBadge = document.getElementById("bp" + prefixType.toUpperCase() + "SecClass");
+                    var secBadge = document.getElementById("bp" + (prefixType.charAt(0).toUpperCase() + prefixType.slice(1).toLowerCase()) + "SecClass");
                     if (secBadge && (prefixType === "sel" || prefixType === "cfg")) {
                         var sec = systems[si].security_status;
                         var secLabel = sec.toFixed(1);
@@ -8056,8 +8058,11 @@
 
     /** Close system autocomplete dropdown on outside click (called from body onclick) */
     function closeSystemDropdown(prefixType) {
-        var resultsEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemResults");
+        var pPrefix = prefixType.charAt(0).toUpperCase() + prefixType.slice(1).toLowerCase();
+        var resultsEl = document.getElementById("bp" + pPrefix + "SystemResults");
         if (resultsEl) resultsEl.style.display = "none";
+        // Also hide floating results
+        document.querySelectorAll('[id^="bpFloatingResults_"]').forEach(function(el) { el.style.display = "none"; });
     }
 
     /** Legacy: lookup cost index by typed system name (kept for backwards compat) */
