@@ -7789,44 +7789,43 @@
             }
         }
 
-        // System Cost Index
+        // System Cost Index (order.config first)
         var sysNameEl = document.getElementById("bpCfgSystemName");
-        if (sysNameEl) sysNameEl.value = c.system_name || "";
+        var ocSysName = ocInit.system_name || c.system_name || "";
+        if (sysNameEl) sysNameEl.value = ocSysName;
+        var ocSci = ocInit.system_cost_index != null ? ocInit.system_cost_index : c.system_cost_index;
         var idxResultEl = document.getElementById("bpCfgIndexResult");
         if (idxResultEl) {
-            idxResultEl.textContent = c.system_cost_index != null ? c.system_cost_index.toFixed(2) + "%" : "—";
+            idxResultEl.textContent = ocSci != null ? (ocSci * 100).toFixed(2) + "%" : "—";
         }
         var manualIdxEl = document.getElementById("bpCfgIndexManualVal");
         if (manualIdxEl) {
-            manualIdxEl.value = c.system_cost_index != null ? c.system_cost_index : 5.0;
+            manualIdxEl.value = ocSci != null ? parseFloat((ocSci * 100).toFixed(2)) : 5.0;
         }
         // Radio: if we have a system_name, prefer auto; else manual
-        var useAuto = c.system_name && c.system_name.length > 0;
+        var useAuto = ocSysName && ocSysName.length > 0;
         var autoRadio = document.getElementById("bpCfgIndexAuto");
         var manualRadio = document.getElementById("bpCfgIndexManual");
         if (autoRadio) autoRadio.checked = useAuto;
         if (manualRadio) manualRadio.checked = !useAuto;
         if (manualIdxEl) manualIdxEl.disabled = useAuto;
 
-        // Price Source
-        var priceSell = document.getElementById("bpCfgPriceSell");
-        var priceBuy = document.getElementById("bpCfgPriceBuy");
-        if (priceSell) priceSell.checked = (c.price_source !== "jita_buy");
-        if (priceBuy) priceBuy.checked = (c.price_source === "jita_buy");
-        updatePriceNote();
+        // Security badge from order.config
+        var secBadge = document.getElementById("bpCfgSecClass");
+        if (secBadge) {
+            var secVal = ocInit.security_class || c.security_class || "";
+            if (secVal) {
+                var secLabel = secVal === "highsec" ? "Highsec" : (secVal === "lowsec" ? "Lowsec" : "Nullsec");
+                secBadge.textContent = secLabel;
+                secBadge.className = "badge " + (secVal === "highsec" ? "bg-success" : secVal === "lowsec" ? "bg-warning text-dark" : "bg-danger");
+                secBadge.style.display = "inline-block";
+            }
+        }
+        setSel("bpCfgSecClassManual", ocInit.security_class || c.security_class || "highsec");
 
-        // Skills
-        setSel("bpCfgSkillInd", c.skill_industry != null ? String(c.skill_industry) : "5");
-        setSel("bpCfgSkillAdvInd", c.skill_adv_industry != null ? String(c.skill_adv_industry) : "5");
-        setSel("bpCfgSkillSup", c.skill_supply_chain != null ? String(c.skill_supply_chain) : "4");
-        setSel("bpCfgSkillMP", c.skill_mass_production != null ? String(c.skill_mass_production) : "5");
-        setSel("bpCfgSkillAMP", c.skill_adv_mass_production != null ? String(c.skill_adv_mass_production) : "4");
-        setSel("bpCfgSkillCap", c.skill_capital_ship != null ? String(c.skill_capital_ship) : "3");
-
-        // Implants
-        setSel("bpCfgImplant7", c.implant_slot7 || "");
-        setSel("bpCfgImplant8", c.implant_slot8 || "");
-        setSel("bpCfgImplant10", c.implant_slot10 || "");
+        // Implants (order.config first)
+        setSel("bpCfgImplSlot7", ocInit.implant_slot7 || c.implant_slot7 || "");
+        setSel("bpCfgImplSlot8", ocInit.implant_slot8 || c.implant_slot8 || "");
 
         // Populate presets AFTER all form fields are set (so matching works)
         populatePresetDropdown();
