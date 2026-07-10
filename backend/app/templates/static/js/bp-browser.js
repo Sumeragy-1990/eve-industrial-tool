@@ -7865,12 +7865,13 @@
             ? charSel.selectedOptions[0].textContent : "";
         oc.implant_slot7 = getSel("bpCfgImplSlot7") || "";
         oc.implant_slot8 = getSel("bpCfgImplSlot8") || "";
-        oc.tax_rate = parseFloat(getElVal("bpCfgTax")) || 0;
+        oc.tax_rate = (function(){ var t = parseFloat(getElVal("bpCfgTax")); return isNaN(t) ? 0 : t; })();
         oc.skills = modalEl ? modalEl._lastSkills || [] : [];
 
         if (order) {
             order.config = oc;
             saveOrders();
+            console.log("[BP] Order config saved:", JSON.stringify(oc));
             // Refresh build costs with new config
             _fetchBuildCostsForOrder(order).then(function() {
                 renderOrderDetail();
@@ -7881,6 +7882,14 @@
             var c = loadConfig();
             c.character_id = oc.character_id;
             c.character_name = oc.character_name;
+            c.tax_rate = oc.tax_rate;
+            c.facility_type = oc.facility_type;
+            c.rig1 = oc.rig1; c.rig2 = oc.rig2; c.rig3 = oc.rig3;
+            c.system_name = oc.system_name;
+            c.system_cost_index = oc.system_cost_index;
+            c.security_class = oc.security_class;
+            c.implant_slot7 = oc.implant_slot7;
+            c.implant_slot8 = oc.implant_slot8;
             saveConfig();
             renderConfigBar();
         }
