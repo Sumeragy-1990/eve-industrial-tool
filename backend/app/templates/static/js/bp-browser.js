@@ -5935,10 +5935,15 @@
         let totalProductRevenue = 0;
         let totalCostForProfit = 0;
 
-        var _summaryConfig = loadConfig();
+        var _globalCfg = loadConfig();
+        var _orderCfg = (_productionOrders[_activeOrderIndex] && _productionOrders[_activeOrderIndex].config) || {};
+        var _summaryConfig = {
+            tax_rate: _orderCfg.tax_rate != null ? _orderCfg.tax_rate : _globalCfg.tax_rate,
+            system_cost_index: _orderCfg.system_cost_index != null ? _orderCfg.system_cost_index : _globalCfg.system_cost_index,
+        };
         var sysIdxDecimal = (_summaryConfig && _summaryConfig.system_cost_index != null)
             ? _summaryConfig.system_cost_index / 100.0 : 0.05;
-        var taxRateDecimal = (_summaryConfig && _summaryConfig.tax_rate)
+        var taxRateDecimal = (_summaryConfig && _summaryConfig.tax_rate != null)
             ? _summaryConfig.tax_rate / 100.0 : 0.05;
 
         for (const item of order.items) {
@@ -7594,11 +7599,16 @@
         if (i8) implantParts.push('<i class="bi bi-motherboard" style="color:#0dcaf0;"></i> ' + (implantLabels[i8] || i8));
         var implantStr = implantParts.length > 0 ? implantParts.join(" / ") : '<span class="text-secondary">None</span>';
 
-        // Preset-Dropdown
+        // Preset-Dropdown — compare with order.config or global
         var presets = loadStationPresets();
         var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
+        var compCfg = oc.facility_type ? oc : c;  // use order config if it has values
         for (var pk in presets) {
-            var isActive = (c.station_name === presets[pk].station_name);
+            var p = presets[pk];
+            var isActive = compCfg.facility_type === p.facility_type
+                && (compCfg.rig1 || "none") === (p.rig1 || "none")
+                && (compCfg.rig2 || "none") === (p.rig2 || "none")
+                && (compCfg.system_name || "") === (p.system_name || "");
             presetOptions += '<option value="' + escHtml(pk) + '"' + (isActive ? ' selected' : '') + '>' + escHtml(pk) + '</option>';
         }
         var presetBar = '<div class="bp-config-bar-line" style="gap:0.5rem;">' +
