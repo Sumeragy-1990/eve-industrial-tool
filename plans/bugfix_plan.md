@@ -116,15 +116,12 @@ Button "Copy Materials" im Campaign-Detail hinzugefügt. Kopiert Materialliste a
 
 ## Bug 7: Implants werden in Station Config nicht gespeichert
 
-**Status**: 🔧 Offen
+**Status**: ✅ Gefixt
 
-### Problem
-Nach dem Setzen von Implantaten (Slot 7 + 8) im Config Modal oder Station Selector werden diese nach Apply & Save nicht persistiert. Beim erneuten Öffnen sind die Werte zurückgesetzt.
-
-### Betroffene Stellen
-- Config Modal (`bpCfgImplSlot7` / `bpCfgImplSlot8`)
-- Station Selector Modal (`bpSelImplSlot7` / `bpSelImplSlot8`)
-- `applyConfigPanel()` und `confirmStationSelector()`
+### Lösung
+- Implants (`implant_slot7`, `implant_slot8`) werden jetzt in Presets gespeichert
+- `character_id`, `character_name`, `security_class` ebenfalls in Presets
+- `applyStationPresetDirect()` lädt alle fehlenden Felder (Implants, Character, Security)
 
 ---
 

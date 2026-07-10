@@ -7959,6 +7959,11 @@
         target.rig3           = p.rig3           || "none";
         target.tax_rate       = p.tax_rate       != null ? p.tax_rate : target.tax_rate;
         target.system_cost_index = p.system_cost_index != null ? p.system_cost_index : target.system_cost_index;
+        target.implant_slot7 = p.implant_slot7 || target.implant_slot7 || "";
+        target.implant_slot8 = p.implant_slot8 || target.implant_slot8 || "";
+        target.character_id = p.character_id != null ? p.character_id : target.character_id;
+        target.character_name = p.character_name || target.character_name || "";
+        target.security_class = p.security_class || target.security_class || "highsec";
         if (isOrderConfig) {
             saveOrders();
             _fetchBuildCostsForOrder(order).then(function() {
@@ -8324,6 +8329,11 @@
                 presets[presetSel.value].system_cost_index = oc.system_cost_index;
                 presets[presetSel.value].indices = oc.indices;
                 presets[presetSel.value].invention_cost_index = oc.invention_cost_index;
+                presets[presetSel.value].implant_slot7 = oc.implant_slot7;
+                presets[presetSel.value].implant_slot8 = oc.implant_slot8;
+                presets[presetSel.value].character_id = oc.character_id;
+                presets[presetSel.value].character_name = oc.character_name;
+                presets[presetSel.value].security_class = oc.security_class;
                 saveStationPresets(presets);
                 console.log("[BP] Preset updated:", presetSel.value);
             }
