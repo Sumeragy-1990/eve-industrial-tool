@@ -1,62 +1,46 @@
 # Bug Fix Plan — EVE Industrial Tool
 
-## Übersicht
+## Session 2026-07-10: Station Config & Character Skills Overhaul ✅
 
-Die Bugs werden einzeln bearbeitet, getestet und deployed. Aktuell arbeiten wir an Bug 1.
+**Status**: ✅ Abgeschlossen
 
----
-
-## Bug 1: Station Config & Character Skills Overhaul
-
-**Status**: 🔧 In Planung
-
-### Problem
-- Bauzeit für Order 58 (Golem) zeigt 1d 16h statt 2d 14h 50s wie in EVE
-- Ursache: Tool nutzt statische globale Skill-Defaults (Industry=5, AdvIndustry=5, TE=20)
-- T2 Blueprints benötigen zusätzliche Skills:
-  - **Advanced Large Ship Construction** (-2%/Level) — fehlt komplett
-  - **Mechanical Engineering** (-1%/Level für T2) — fehlt komplett
-  - **Caldari/Gallente/Amarr/Minmatar Starship Engineering** (-1%/Level für T2) — fehlt
-- Engineering-Skills müssen automatisch anhand des Blueprint-Races erkannt werden
-- Station-Selector (Zahnrad-Modal) muss Character-Auswahl integrieren
-
-### Gewünschte Lösung (Brainstorm-Ergebnisse)
+### Was wurde implementiert
 
 1. **Character-Auswahl pro Order**
-   - Jeder Order kann ein ESI-Character zugewiesen werden
-   - Character kann jederzeit gewechselt werden → Skills passen sich an
-   - Skills beim Wechsel automatisch via ESI syncen (wie Invention-Tab: `POST /skills/sync/{charId}`)
+   - ESI Character-Dropdown im Config-Modal
+   - Automatischer Skills-Load beim Character-Wechsel
+   - ↻ Sync-Button für ESI-Refresh
+   - Skills werden in `order.config.skills` gespeichert
 
-2. **Station-Selector überarbeiten**
-   - Character-Dropdown integrieren
-   - Skills aus ESI anzeigen (Industry, Adv Industry, Ship Construction, Engineering)
-   - Felder automatisch befüllen, aber manuell übersteuerbar
+2. **Station-Selector überarbeitet** (Config-Modal "Edit")
+   - Facility-Typen: NPC Station, Raitaru (M), Sotyo (L), Azbel (XL)
+   - Rigs nur bei Engineering Complexen sichtbar
+   - Rigs dynamisch aus Datenbank geladen (96 Rigs)
+   - System-Suche mit Autocomplete + Security-Level
+   - Security manuell wählbar (Highsec/Lowsec/Nullsec)
+   - Price Source entfernt (per Item in Order-Spalte)
+   - Implants (Slot 7 + 8)
 
-3. **Engineering-Race-Erkennung**
-   - Automatisch erkennen welcher Engineering-Skill relevant ist (Caldari für Golem/Raven-Linie etc.)
-   - Blueprint-Produkt-Race aus SDE-Datenbank abrufen
-   - Nur relevanten Engineering-Skill in Bauzeit einrechnen
+3. **Bauzeit-Formel erweitert**
+   - Advanced Large Ship Construction (-2%/Level)
+   - Engineering Skills (-1%/Level): Mechanical, Amarr, Gallente, Caldari, Minmatar
+   - Rig time_bonus aus Datenbank
 
-4. **Bauzeit-Formel erweitern** (blueprints.py)
-   ```
-   time_mult = (1 - 0.02×TE)
-             × (1 - 0.04×Industry)
-             × (1 - 0.03×AdvIndustry)
-             × (1 - 0.02×AdvLargeShipConstr)  # für Large/Capital Ships
-             × (1 - 0.01×EngineeringSkill)    # Rasse-spezifisch
-   ```
+4. **Order-spezifische Config**
+   - Jede Order speichert `order.config` (facility, rigs, system, skills, implants)
+   - Config-Bar zeigt Werte aus `order.config`
+   - Character-Balken in Order-Detail
+   - Apply & Save updated auch das aktive Preset
 
-5. **Order-spezifische Config**
-   - Jede Order speichert `order.character_id`, `order.skills`, `order.implants`, `order.facility`
-   - Globale Config dient nur als Default für neue Orders
-
-### Nächste Schritte
-- [ ] Station-Selector UI neu designen (HTML + JS)
-- [ ] Character-Dropdown + ESI-Skills-Sync einbauen
-- [ ] Engineering-Skill-Race-Erkennung implementieren
-- [ ] Bauzeit-Formel um fehlende Skills erweitern
-- [ ] Order-spezifische Config-Speicherung
-- [ ] Testen mit Golem (Order 58) — Bauzeit muss EVE-Wert treffen
+5. **Diverse Bugfixes**
+   - Tax 0% falsy-Bug in 7 Stellen korrigiert
+   - Security speichert aus Dropdown statt Badge
+   - System-Suche ID-Casing gefixt (cfg → Cfg)
+   - Runs Export-Fehler behoben
+   - ME/PE triggern API-Refresh
+   - "Nadja" Default entfernt
+   - Preset-Matching für Tax=0% korrigiert
+   - Backend SQL Rig-Query gefixt (asyncpg IN-Klausel)
 
 ---
 
@@ -65,66 +49,76 @@ Die Bugs werden einzeln bearbeitet, getestet und deployed. Aktuell arbeiten wir 
 **Status**: ✅ Gefixt (Commit 0d172e4)
 
 ### Problem
-Wenn man im Order-Tab die Runs eines Items ändert, wird nach dem API-Call der alte Wert wiederhergestellt. Der User kann die Runs nicht dauerhaft ändern.
+Wenn man im Order-Tab die Runs eines Items ändert, wird nach dem API-Call der alte Wert wiederhergestellt.
 
 ### Root Cause
-1. `updateOrderItemRuns` war nie in `window.BP` exportiert → `onchange="BP.updateOrderItemRuns(…)"` warf stillen TypeError → Wert wurde nie gespeichert
-2. Zusätzlich überschrieben `orderItem.runs = apiItem.runs` in `_fetchBuildCostsForOrder()` und `recalcCurrentOrder()` den User-Wert nach API-Response
+1. `updateOrderItemRuns` war nie in `window.BP` exportiert → stiller TypeError
+2. `orderItem.runs = apiItem.runs` überschrieb User-Wert nach API-Response
 
 ### Fix (2 Commits)
-- **1f59530**: `orderItem.runs = apiItem.runs`-Blöcke in beiden Funktionen entfernt
-- **0d172e4**: `updateOrderItemRuns` zu `BP.*`-Exports hinzugefügt + `oninput`-Handler für sofortiges Speichern (Runs/ME/PE)
+- **1f59530**: `orderItem.runs = apiItem.runs`-Blöcke entfernt
+- **0d172e4**: Export + oninput-Handler + Immediate-Funktionen
 
 ---
 
-## Bug 3: Rigs Komplett-Überholung — Schiffsgrößen-spezifische Rigs
+## Bug 6: System Cost Index — Alle 5 Aktivitäten anzeigen
 
-**Status**: ✅ Im Workspace (gestasht), noch nicht committed/deployed
+**Status**: 🔧 Offen
 
 ### Problem
-Es gab nur 5 generische Rig-Typen. Der Material-Bonus wurde für ALLE Items gleich angewendet, egal ob Fregatte oder Battleship.
+Die System-Suche zeigt nur den Manufacturing Cost Index an. Es gibt aber 5 Aktivitäten:
+- Manufacturing
+- ME Research (Material Efficiency)
+- TE Research (Time Efficiency)
+- Copying
+- Invention
 
-### Fix
-- `_RIG_BONUS`-Dict mit 11 Rig-Typen (t1_small, t2_small, t1_medium, …, t2_reaction)
-- `_get_ship_size(group_name)` ermittelt Schiffsgröße per Keyword
-- `_get_rig_bonus(rig_type, ship_size)` gibt passenden Bonus
-- SQL-Queries laden `product_group_name` für Größen-Bestimmung
+Jede hat ihren eigenen Cost Index pro System.
+
+### Gewünschte Lösung
+1. **API erweitern**: `GET /api/industry/system-cost-index` sollte alle 5 Indizes zurückgeben können (oder 5 Anfragen parallel)
+2. **Frontend**: Im Config-Modal + Station-Selector alle 5 Indizes anzeigen
+3. **Invention-Tab**: Kann dieselbe System-Suche + Index-Anzeige wiederverwenden (statt separater Implementation)
+
+### Vorteile
+- Einheitliche System-Suche für Config + Invention
+- User sieht auf einen Blick alle relevanten Indizes
+- Kein doppelter Code
 
 ---
 
-## Bug 4.1: Invention Character Wechsel — Success Chance Aktualisiert Sich Nicht
+## Bug 3: Rigs Komplett-Überholung 🗑️
 
-**Status**: ✅ Im Workspace (gestasht)
+**Status**: ❌ Veraltet (durch DB-Lösung ersetzt)
 
-### Problem
-Beim Character-Wechsel im Invention-Tab blieb die Success-Chance gleich, weil der neue Character noch keine ESI-Skills geladen hatte.
-
-### Fix
-Automatischer ESI-Sync bei leeren Skills + Status-Meldungen für den User.
+Wurde durch die dynamische Rig-Datenbank (96 Rigs) abgelöst.
 
 ---
 
-## Bug 4.2: Invention System Cost — Keine Suchfunktion
+## Bug 4.1: Invention Character Wechsel
 
-**Status**: ✅ Im Workspace (gestasht)
+**Status**: ⏳ Im Workspace (gestasht)
 
 ### Problem
-Im Invention-Tab gab es nur ein manuelles Zahlen-Input für den Cost Index, keine Autocomplete-Suche.
-
-### Fix
-System-Suche mit Autocomplete-Dropdown + automatischer Index-Anzeige.
+Beim Character-Wechsel im Invention-Tab blieb die Success-Chance gleich.
 
 ---
 
-## Bug 5: Copy Materials Button für Datacores/Decryptors Fehlt
+## Bug 4.2: Invention System Cost Index
 
-**Status**: ✅ Im Workspace (gestasht)
+**Status**: ⏳ Im Workspace (gestasht) — wird durch Bug 6 ersetzt
 
 ### Problem
-Im Campaign-Detail gab es keinen Button, um Materialien für den Marktkauf zu kopieren.
+Im Invention-Tab gab es nur manuelles Zahlen-Input. Soll durch Bug 6 (einheitliche System-Suche) gelöst werden.
 
-### Fix
-"Copy Materials"-Button + `copyCampaignMaterials()`-Funktion.
+---
+
+## Bug 5: Copy Materials Button
+
+**Status**: ⏳ Im Workspace (gestasht)
+
+### Problem
+Im Campaign-Detail fehlte ein Button zum Kopieren der Materialien.
 
 ---
 
