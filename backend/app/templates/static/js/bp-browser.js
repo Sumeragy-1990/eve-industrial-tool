@@ -7970,7 +7970,8 @@
     function selectSolarSystem(prefixType, systemName) {
         var inputEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemName");
         var resultsEl = document.getElementById("bp" + prefixType.toUpperCase() + "SystemResults");
-        var idxResultEl = document.getElementById("bp" + prefixType.toUpperCase() + "IdxResult");
+        var idxSuffix = (prefixType === "cfg") ? "IndexResult" : "IdxResult";
+        var idxResultEl = document.getElementById("bp" + prefixType.toUpperCase() + idxSuffix);
         if (inputEl) inputEl.value = systemName;
         if (resultsEl) resultsEl.style.display = "none";
         if (!idxResultEl) return;
