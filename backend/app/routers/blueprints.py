@@ -1865,7 +1865,10 @@ async def calculate_build_cost(
             system_cost_index = 0.02 if plan_is_reaction else 0.05
         facility_tax_rate = facility.tax_rate / 100.0 if facility.tax_rate is not None else 0.0
         scc_surcharge_rate = 0.04
-        structure_role_bonus = 0.0  # Default 0; erweiterbar via Facility-Config
+        # Structure Role Bonus: Engineering Complexes reduzieren Bauzeit + Kosten
+        # Raitaru: -15%, Sotyo: -20%, Azbel: -25%
+        structure_role_map = {"raitaru": 0.15, "sotyo": 0.20, "azbel": 0.25}
+        structure_role_bonus = structure_role_map.get(facility.facility_type, 0.0)
 
         # Zeitreduktion durch TE + Skills (beeinflusst NUR Bauzeit, NICHT Job-Kosten)
         te = plan["te"]
@@ -1900,6 +1903,10 @@ async def calculate_build_cost(
         # Rig-Zeitreduktion (aus Datenbank, z.B. Time Efficiency Rigs)
         if rig_time_bonus > 0:
             time_mult *= max(0.01, 1.0 - rig_time_bonus)
+
+        # Structure Role Bonus (Engineering Complex: -15% bis -25%)
+        if structure_role_bonus > 0:
+            time_mult *= max(0.01, 1.0 - structure_role_bonus)
 
         # Implant-Materialreduktion (Slot 7 = Beancounter Industry -1% Material)
         implant_material_mult = 1.0

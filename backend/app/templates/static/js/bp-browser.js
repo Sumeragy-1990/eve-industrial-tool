@@ -2920,6 +2920,7 @@
         var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
         var compCfg = oc.facility_type ? oc : c;
         for (var pk in presets) {
+            if (pk === "_deleted") continue;
             var p = presets[pk];
             var isActive = compCfg.facility_type === p.facility_type
                 && (compCfg.rig1 || "none") === (p.rig1 || "none")
@@ -7835,6 +7836,7 @@
         var sysVal = (document.getElementById("bpCfgSystemName") || {}).value;
         var matchedKey = "";
         for (var key in presets) {
+            if (key === "_deleted") continue;
             var p = presets[key];
             var opt = document.createElement("option");
             opt.value = key;
@@ -8087,6 +8089,7 @@
         var presetOptions = '<option value="">\u2014 Preset \u2014</option>';
         var compCfg = oc.facility_type ? oc : c;  // use order config if it has values
         for (var pk in presets) {
+            if (pk === "_deleted") continue;
             var p = presets[pk];
             var isActive = compCfg.facility_type === p.facility_type
                 && (compCfg.rig1 || "none") === (p.rig1 || "none")
