@@ -2840,6 +2840,7 @@
         // Add Edit button right next to the bar
         html += '<div class="mt-1 d-flex align-items-center gap-2" style="font-size:0.72rem;">';
         html += '<button class="btn btn-sm btn-outline-secondary" onclick="BP.openConfigModal()" style="font-size:0.65rem;"><i class="bi bi-gear"></i> Edit Station Config</button>';
+        html += '<button class="btn btn-sm btn-outline-danger" onclick="BP.deleteStationPresetFromBar()" style="font-size:0.65rem;" title="Delete selected preset"><i class="bi bi-trash"></i></button>';
         html += '<span class="text-muted">Install fee: <span class="text-info" id="bpInvInstallFee">' + formatNumber(_calcInvInstallFee(_inventionCostIndex)) + ' ISK</span></span>';
         html += '</div>';
         el.innerHTML = html;
@@ -7929,6 +7930,20 @@
         if (sel) sel.value = name;
     }
 
+    /** Delete the selected preset from the config bar dropdown */
+    function deleteStationPresetFromBar() {
+        var barSelect = document.querySelector('#bpInvConfigBar .bp-price-source-select');
+        if (!barSelect || !barSelect.value) { alert("Select a preset to delete."); return; }
+        var key = barSelect.value;
+        if (!confirm('Delete preset "' + key + '"?')) return;
+        var presets = loadStationPresets();
+        delete presets[key];
+        saveStationPresets(presets);
+        // Repopulate both dropdowns
+        populatePresetDropdown();
+        renderInvConfigBar();
+    }
+
     /** Delete the selected preset */
     function deleteStationPreset() {
         var sel = document.getElementById("bpCfgPresetSelect");
@@ -10121,6 +10136,7 @@
         loadStationPreset: loadStationPreset,
         saveStationPreset: saveStationPreset,
         deleteStationPreset: deleteStationPreset,
+        deleteStationPresetFromBar: deleteStationPresetFromBar,
         generateBuyList: generateBuyList,
         buyListCopyClipboard: buyListCopyClipboard,
         buyListExportCsv: buyListExportCsv,
