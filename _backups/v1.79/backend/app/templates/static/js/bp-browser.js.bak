@@ -127,7 +127,6 @@
     let _productionOrders = [];
     let _bpConfig = null;  // Global build config, loaded via loadConfig()
     let _activeOrderIndex = -1;
-    // _activeOrderTab removed - now using Main Order bar + Sub-Orders layout
 
     // ── Price Cache ────────────────────────────────────────────────
     const PRICES_STORAGE_KEY = "bp_price_cache";
@@ -4322,32 +4321,6 @@
         renderOrders();
     }
 
-    function setActiveSubOrder(orderIdx, subIdx) {
-        _activeOrderIndex = orderIdx;
-        _activeSubOrderIdx = subIdx;
-        renderOrders();
-        var order = _productionOrders[orderIdx];
-        if (order && order.sub_orders && order.sub_orders[subIdx]) {
-            var so = order.sub_orders[subIdx];
-            if (!so.build_cost || !so.build_cost.total_cost) {
-                _fetchBuildCostsForOrder(order).then(function() { renderOrders(); });
-            }
-        }
-    }
-
-    function _switchOrderTab(tab) {
-        _activeOrderTab = tab;
-        if (tab === 'sub') {
-            var _actMain = (_activeOrderIndex >= 0 && _productionOrders[_activeOrderIndex] && _productionOrders[_activeOrderIndex].type !== 'sub')
-                ? _productionOrders[_activeOrderIndex] : null;
-            if (_actMain) {
-                var _firstSub = _productionOrders.findIndex(function(o) { return o.parent_id === _actMain.id; });
-                if (_firstSub >= 0) _activeOrderIndex = _firstSub;
-            }
-        }
-        renderOrders();
-    }
-
     async function setActiveOrder(index) {
         _activeOrderIndex = index;
 
@@ -4671,136 +4644,6 @@
                 for (var _rci = 0; _rci < order.items.length; _rci++) {
                     recalcOrderItem(order, _rci);
                 }
-                // ── Sub-Orders erzeugen (rekursiv, für ALLE Build-Step-Ebenen) ──
-                var _mainOrderId = order.id;
-                // Alte Sub-Orders bereinigen
-                for (var _poi = _productionOrders.length - 1; _poi >= 0; _poi--) {
-                    if (_productionOrders[_poi].parent_id === _mainOrderId) {
-                        _productionOrders.splice(_poi, 1);
-                        if (_poi <= _activeOrderIndex) _activeOrderIndex--;
-                    }
-                }
-                var _subCnt = 0;
-                var _mainOrderIdx = _productionOrders.indexOf(order);
-                function _createSubOrdersRecursive(buildSteps, parentOrderId, subComponents, meLevel, teLevel, parentConfig, depth) {
-                    if (!buildSteps || !buildSteps.steps) return;
-                    for (var _rsi = 0; _rsi < buildSteps.steps.length; _rsi++) {
-                        var _step = buildSteps.steps[_rsi];
-                        if (!_step.sub_steps || _step.sub_steps.length === 0) continue;
-                        for (var _rss = 0; _rss < _step.sub_steps.length; _rss++) {
-                            var _subS = _step.sub_steps[_rss];
-                            if (!_subS.materials || _subS.materials.length === 0) continue;
-                            _subCnt++;
-                            console.log("[BP] SubOrder depth="+depth+" cnt="+_subCnt+" name="+(_subS.product_name||'?')+" mats="+(_subS.materials?1:0)+" deeper="+((_subS.sub_steps||[]).length));
-                            var _rpid = _subS.product_type_id;
-                            var _rbpId = _subS.blueprint_type_id || _rpid;
-                            var _matchedSC = null;
-                            if (subComponents) {
-                                for (var _rc2 = 0; _rc2 < subComponents.length; _rc2++) {
-                                    if (subComponents[_rc2].product_type_id === _rpid || subComponents[_rc2].blueprint_type_id === _rbpId) {
-                                        _matchedSC = subComponents[_rc2];
-                                        break;
-                                    }
-                                }
-                            }
-                            var _subMatCost = 0;
-                            if (!_matchedSC || !_matchedSC.costs || !_matchedSC.costs.step_total) {
-                                for (var _mi2 = 0; _mi2 < (_subS.materials || []).length; _mi2++) {
-                                    var _sm2 = _subS.materials[_mi2];
-                                    var _pr2 = getEffectivePrice(_sm2.material_type_id);
-                                    _subMatCost += (_pr2 && _pr2.price) ? _pr2.price * (_sm2.total_quantity || 0) : 0;
-                                }
-                            }
-                            var _scCosts = _matchedSC && _matchedSC.costs;
-                            var _subBC = {
-                                total_material_cost: (_scCosts && _scCosts.material_cost) || _subMatCost || 0,
-                                system_cost_amount: (_scCosts && _scCosts.job_cost) || 0,
-                                facility_tax: (_scCosts && _scCosts.facility_tax) || 0,
-                                scc_surcharge: (_scCosts && _scCosts.scc_surcharge) || 0,
-                                total_cost: (_scCosts && _scCosts.step_total) || _subMatCost || 0,
-                            };
-                            var _subCfg = Object.assign({}, parentConfig||{});
-                            if (_subCfg.system_cost_index != null && _subCfg.system_cost_index < 1.0 && !_subCfg._sciFmt && !_subCfg.indices) {
-                                _subCfg.system_cost_index = _subCfg.system_cost_index * 100;
-                                _subCfg._sciFmt = 'pct';
-                            }
-                            var _rSub = {
-                                id: order.id+'-sub-'+_rpid+'-'+depth,
-                                order_number: order.order_number+'-'+String(_subCnt).padStart(3,'0'),
-                                name: 'Sub '+String(_subCnt).padStart(3,'0')+' - '+(_subS.product_name||'Component'),
-                                type: 'sub', parent_id: parentOrderId, _parentMatTypeId: _rpid,
-                                items: [{blueprint_type_id:_rbpId,product_type_id:_rpid,product_name:_subS.product_name||'Component',runs:_subS.runs_needed||1,me:meLevel,te:teLevel}],
-                                config: _subCfg,
-                                build_cost: _subBC,
-                                sub_orders: [], created_at: new Date().toISOString()
-                            };
-                            var _insIdx2 = _mainOrderIdx + _subCnt;
-                            if (_insIdx2 > _productionOrders.length) _insIdx2 = _productionOrders.length;
-                            _productionOrders.splice(_insIdx2, 0, _rSub);
-                            if (_activeOrderIndex >= _insIdx2) _activeOrderIndex++;
-                            if (_subS.sub_steps && _subS.sub_steps.length > 0) {
-                                _createSubOrdersRecursive(_subS, _rSub.id, _matchedSC ? _matchedSC.sub_components : null, meLevel, teLevel, parentConfig, depth+1);
-                            }
-                        }
-                    }
-                }
-                for (var _sii = 0; _sii < order.items.length; _sii++) {
-                    var _siItem = order.items[_sii];
-                    if (_siItem._buildStepsData) {
-                        var _siSubComps = (_siItem._costs && _siItem._costs.items) ? _siItem._costs.items : null;
-                        _createSubOrdersRecursive(_siItem._buildStepsData, order.id, _siSubComps, _siItem.me||10, _siItem.te||20, order.config, 1);
-                    }
-                }
-                // ── Sub-Order Kosten per API berechnen + Propagation ──
-                // Ruff _fetchBuildCostsForOrder für jede Sub-Order auf
-                var _subFetchPromises = [];
-                for (var _spi = 0; _spi < _productionOrders.length; _spi++) {
-                    if (_productionOrders[_spi].parent_id === _mainOrderId) {
-                        _subFetchPromises.push(_fetchBuildCostsForOrder(_productionOrders[_spi]));
-                    }
-                }
-                await Promise.all(_subFetchPromises);
-                // Propagation: Sub-Order Total → Parent Material
-                console.log("[BP] Propagating Sub-Order costs... subs=" + _productionOrders.filter(function(x){return x.type==='sub';}).length);
-                for (var _ppi = 0; _ppi < _productionOrders.length; _ppi++) {
-                    var _ppo = _productionOrders[_ppi];
-                    if (_ppo.type !== 'sub' || !_ppo.parent_id) continue;
-                    var _ppMatId = _ppo._parentMatTypeId;
-                    if (!_ppMatId) continue;
-                    var _ppTotal = 0;
-                    var _ppBC = _ppo.items && _ppo.items[0] && _ppo.items[0].build_cost;
-                    if (_ppBC && _ppBC.total_cost > 0) {
-                        _ppTotal = _ppBC.total_cost;
-                    } else {
-                        var _ppItemCosts = _ppo.items && _ppo.items[0] && _ppo.items[0]._costs;
-                        if (_ppItemCosts && _ppItemCosts.total_cost) {
-                            _ppTotal = _ppItemCosts.total_cost;
-                        }
-                    }
-                    if (_ppTotal <= 0) continue;
-                    var _ppRuns = _ppo.items && _ppo.items[0] ? (_ppo.items[0].runs || 1) : 1;
-                    var _ppUnitPrice = _ppRuns > 0 ? _ppTotal / _ppRuns : 0;
-                    console.log("[BP] SubOrder total="+formatIsk(_ppTotal)+" typeId="+_ppMatId+" runs="+_ppRuns+" unit="+formatIsk(_ppUnitPrice));
-                    for (var _ppmi = 0; _ppmi < order.items.length; _ppmi++) {
-                        var _ppItem = order.items[_ppmi];
-                        if (!_ppItem.materials) continue;
-                        for (var _ppm = 0; _ppm < _ppItem.materials.length; _ppm++) {
-                            var _ppMat = _ppItem.materials[_ppm];
-                            if (_ppMat.material_type_id === _ppMatId && _ppMat.decision === 'build') {
-                                console.log("[BP] ✓ Propagated to material: "+(_ppMat.material_name||'?')+" total="+formatIsk(_ppTotal));
-                                _ppMat._subOrderTotal = _ppTotal;
-                                _ppMat.total_cost = _ppTotal;
-                                _ppMat.unit_price = _ppUnitPrice;
-                                break;
-                            }
-                        }
-                    }
-                }
-                // Recalc mit den propagierten Sub-Order Kosten
-                for (var _rci2 = 0; _rci2 < order.items.length; _rci2++) {
-                    recalcOrderItem(order, _rci2);
-                }
-                renderOrders();
                 // Batch-fetch prices for sub-material type IDs so inline sub-material lists show prices
                 await _fetchSubMaterialPrices(order);
             } else if (resp.status === 401) {
@@ -5348,150 +5191,51 @@
     function renderOrders() {
         renderOrderSelector();
         renderConfigBar();
-        var _isSub = _activeOrderIndex >= 0 && _productionOrders[_activeOrderIndex] && _productionOrders[_activeOrderIndex].type === 'sub';
-        if (_isSub) {
-            renderSubOrderDetail();
-        } else {
-            renderOrderDetail();
-        }
+        renderOrderDetail();
         renderOrderCount();
     }
 
     function renderOrderCount() {
         const badge = document.getElementById("bpOrderCount");
         if (badge) {
-            var _mainCount = _productionOrders.filter(function(o) { return o.type !== 'sub'; }).length;
-            badge.textContent = _mainCount;
-            badge.style.display = _mainCount > 0 ? "inline" : "none";
+            badge.textContent = _productionOrders.length;
+            badge.style.display = _productionOrders.length > 0 ? "inline" : "none";
         }
     }
 
     function renderOrderSelector() {
         const container = document.getElementById("bpOrderSelector");
         if (!container) return;
+
         if (_productionOrders.length === 0) {
             container.innerHTML = '<div class="text-center text-secondary small py-3 px-2">' +
                 '<i class="bi bi-inbox"></i><br>No orders yet.<br>' +
                 '<small>Use "Send to Production Orders" from the Shopper cart.</small></div>';
             return;
         }
-        // Auto-select first main order if none active
-        if (_activeOrderIndex < 0 || !_productionOrders[_activeOrderIndex]) {
-            var _firstMain = _productionOrders.find(function(o) { return o.type !== 'sub'; });
-            if (_firstMain) _activeOrderIndex = _productionOrders.indexOf(_firstMain);
-        }
-        var _curOrder = (_activeOrderIndex >= 0) ? _productionOrders[_activeOrderIndex] : null;
-        var _mainOrderId = null;
-        var _subOrders = [];
-        if (_curOrder) {
-            if (_curOrder.type === 'sub' && _curOrder.parent_id) {
-                _mainOrderId = _curOrder.parent_id;
-            } else {
-                _mainOrderId = _curOrder.id;
-            }
-            _subOrders = _productionOrders.filter(function(o) { return o.parent_id === _mainOrderId; });
-        }
-        var _mainOrders = _productionOrders.filter(function(o) { return o.type !== 'sub'; });
-        var _activeMain = _mainOrderId ? _productionOrders.find(function(o) { return o.id === _mainOrderId; }) : (_mainOrders.length > 0 ? _mainOrders[0] : null);
-        var _mainIdx = _activeMain ? _productionOrders.indexOf(_activeMain) : -1;
-        var html = '<div style="margin-bottom:4px;">';
-        if (_activeMain) {
-            html += '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">';
-            for (var _mi = 0; _mi < _mainOrders.length; _mi++) {
-                var _mo = _mainOrders[_mi];
-                var _miIdx = _productionOrders.indexOf(_mo);
-                var _isMainActive = _miIdx === _mainIdx;
-                var _scnt = _productionOrders.filter(function(x) { return x.parent_id === _mo.id; }).length;
-                html += '<div class="bp-order-card' + (_isMainActive ? ' active' : '') + '"' +
-                    ' onclick="BP.setActiveOrder(' + _miIdx + ')"' +
-                    ' style="cursor:pointer;' + (_isMainActive ? 'background:rgba(138,180,248,0.12);border-color:var(--t-accent,#8ab4f8);' : '') + '">' +
-                    '<div class="bp-order-card-name" style="font-size:0.72rem;"><i class="bi bi-file-earmark"></i> ' + escHtml(_mo.name) + '</div>' +
-                    '<div class="bp-order-card-meta" style="font-size:0.6rem;">' +
-                    (_scnt > 0 ? '<span class="badge bg-info" style="font-size:0.5rem;">' + _scnt + ' Sub</span> ' : '') +
-                    '<span>' + (_mo.items ? _mo.items.length : 0) + ' items</span>' +
-                    (_mo.build_cost ? '<span class="ms-2" style="color:var(--t-accent);font-weight:600;">' + formatIsk(_mo.build_cost.total_cost || 0) + '</span>' : '') +
-                    '</div></div>';
-            }
-            html += '</div>';
-        }
-        html += '</div>';
-        // ── Sub-Orders ──
-        if (_subOrders.length > 0) {
-            html += '<div class="text-secondary mb-1" style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.05em;padding:0 4px;">' +
-                '<i class="bi bi-diagram-2"></i> Sub-Orders (' + _subOrders.length + ')</div>';
-            for (var _si = 0; _si < _subOrders.length; _si++) {
-                var _so = _subOrders[_si];
-                var _soIdx = _productionOrders.indexOf(_so);
-                var _soAct = _soIdx === _activeOrderIndex;
-                html += '<div class="bp-order-card' + (_soAct ? ' active' : '') + '"' +
-                    ' onclick="BP.setActiveOrder(' + _soIdx + ')"' +
-                    ' style="margin-left:12px;border-left:2px solid var(--t-accent,#8ab4f8);cursor:pointer;">' +
-                    '<div class="bp-order-card-name" style="font-size:0.72rem;">' +
-                    '<i class="bi bi-diagram-2" style="font-size:0.55rem;color:var(--t-accent);margin-right:2px;"></i> ' + escHtml(_so.name || 'Sub') + '</div>' +
-                    '<div class="bp-order-card-meta">' +
-                    '<span><i class="bi bi-box-seam"></i> ' + (_so.items ? _so.items.length : 0) + ' items</span>' +
-                    '<span class="ms-2" style="color:var(--t-accent);font-weight:600;">' + formatIsk((_so.items && _so.items[0] && _so.items[0].build_cost && _so.items[0].build_cost.total_cost) || 0) + '</span>' +
-                    '</div></div>';
-            }
-        } else if (_activeMain) {
-            html += '<div class="text-secondary small text-center py-3">No Sub-Orders for this Main Order.<br>' +
-                '<small>Send items from the Shopper cart to create production orders.</small></div>';
+
+        let html = "";
+        for (let i = 0; i < _productionOrders.length; i++) {
+            const o = _productionOrders[i];
+            const itemCount = o.items ? o.items.length : 0;
+            const isActive = i === _activeOrderIndex;
+            html += '<div class="bp-order-card' + (isActive ? ' active' : '') + '"' +
+                ' onclick="BP.setActiveOrder(' + i + ')"' +
+                ' title="' + escHtml(o.name) + '">' +
+                '<div class="bp-order-card-name">' + escHtml(o.name) + '</div>' +
+                '<div class="bp-order-card-meta">' +
+                '<span><i class="bi bi-box-seam"></i> ' + itemCount + ' items</span>' +
+                '</div>' +
+                '<div class="bp-order-card-actions">' +
+                '<button class="btn btn-sm btn-outline-info" onclick="event.stopPropagation();BP.duplicateOrder(' + i + ')" title="Duplicate">' +
+                '<i class="bi bi-copy"></i></button>' +
+                '<button class="btn btn-sm btn-outline-warning" onclick="event.stopPropagation();BP.exportOrderAsJson(' + i + ')" title="Export JSON">' +
+                '<i class="bi bi-download"></i></button>' +
+                '<button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation();BP.deleteOrder(' + i + ')" title="Delete">' +
+                '<i class="bi bi-trash"></i></button>' +
+                '</div></div>';
         }
         container.innerHTML = html;
-    }
-
-    async function applyConfigToSubOrders() {
-        const order = _productionOrders[_activeOrderIndex];
-        if (!order) return;
-        var config = order.config;
-        if (!config) return;
-        var _subOrders = _productionOrders.filter(function(o) { return o.parent_id === order.id; });
-        if (_subOrders.length === 0) return;
-        for (var _asi = 0; _asi < _subOrders.length; _asi++) {
-            _subOrders[_asi].config = JSON.parse(JSON.stringify(config));
-        }
-        var _activeIdx = _activeOrderIndex;
-        await recalcCurrentOrder();
-        _activeOrderIndex = _activeIdx;
-        renderOrders();
-    }
-
-    /** Render Sub-Order Detail View */
-    function renderSubOrderDetail() {
-        const detailEl = document.getElementById("bpOrderDetail");
-        const placeholderEl = document.getElementById("bpOrderPlaceholder");
-        if (!detailEl || !placeholderEl) return;
-        if (_activeOrderIndex < 0 || _activeOrderIndex >= _productionOrders.length) return;
-        const subOrder = _productionOrders[_activeOrderIndex];
-        if (subOrder.type !== 'sub') return;
-        detailEl.classList.add("active");
-        placeholderEl.classList.remove("active");
-        const nameEl = document.getElementById("bpOrderDetailName");
-        if (nameEl) { nameEl.textContent = subOrder.name || 'Sub-Order'; nameEl.style.cursor = 'default'; nameEl.onclick = null; }
-        const dateEl = document.getElementById("bpOrderDetailDate");
-        if (dateEl) dateEl.textContent = subOrder.created_at ? new Date(subOrder.created_at).toLocaleDateString() : "";
-        const metaEl = document.getElementById("bpOrderDetailMeta");
-        if (metaEl && subOrder.parent_id) {
-            var _parentOrder = _productionOrders.find(function(o) { return o.id === subOrder.parent_id; });
-            if (_parentOrder) {
-                metaEl.innerHTML = '<span class="text-info" style="cursor:pointer;" onclick="BP.setActiveOrder(' + _productionOrders.indexOf(_parentOrder) + ')">' +
-                    '<i class="bi bi-arrow-up-circle"></i> ' + escHtml(_parentOrder.name) + '</span>' +
-                    '<span class="ms-2 text-secondary"><i class="bi bi-diagram-2"></i> Sub-Order of ' + escHtml(_parentOrder.name) + '</span>';
-            }
-        } else if (metaEl) { metaEl.innerHTML = '<span class="text-secondary">Sub-Order</span>'; }
-        const itemsContainer = document.getElementById("bpOrderItemsContainer");
-        if (!itemsContainer) return;
-        if (!subOrder.items || subOrder.items.length === 0) {
-            itemsContainer.innerHTML = '<div class="text-secondary small text-center py-4">No items in this Sub-Order.</div>';
-            const summaryEl = document.getElementById("bpOrderSummary");
-            if (summaryEl) summaryEl.style.display = "none";
-            const aggEl = document.getElementById("bpOrderAggMaterials");
-            if (aggEl) aggEl.style.display = "none";
-            const soEl = document.getElementById("bpOrderSubOrders");
-            if (soEl) soEl.style.display = "none";
-            return;
-        }
-        renderOrderDetail();
     }
 
     function renderOrderDetail() {
@@ -10313,8 +10057,6 @@
         saveOrders: saveOrders,
         deleteOrder: deleteOrder,
         setActiveOrder: setActiveOrder,
-        setActiveSubOrder: setActiveSubOrder,
-        duplicateOrder: duplicateOrder,
         clearAllOrders: clearAllOrders,
         exportOrderAsJson: exportOrderAsJson,
         importOrderFromJson: importOrderFromJson,
@@ -10331,7 +10073,6 @@
         confirmStationSelector: confirmStationSelector,
         setPriceSource: setPriceSource,
         recalcCurrentOrder: recalcCurrentOrder,
-        applyConfigToSubOrders: applyConfigToSubOrders,
         toggleOrderItem: toggleOrderItem,
         toggleOrderMaterial: toggleOrderMaterial,
         toggleMaterialPriceMode: toggleMaterialPriceMode,
